@@ -41,10 +41,9 @@ Requirements: Node.js 20+ and VS Code 1.93+.
 
 ```bash
 npm install
-npm run watch          # rebuild on change
 ```
 
-Press `F5` in VS Code to launch an Extension Development Host (use **Run Extension (pt-BR)** to test the Portuguese UI).
+Press `F5` in VS Code to build and launch an Extension Development Host (use **Run Extension (pt-BR)** to test the Portuguese UI). After changing code, restart the debug session (`Ctrl+Shift+F5`) to rebuild and reload. To rebuild on every save instead, run **Tasks: Run Task → watch**.
 
 | Script                     | Description                                      |
 | -------------------------- | ------------------------------------------------ |
