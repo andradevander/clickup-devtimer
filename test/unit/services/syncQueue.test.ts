@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ClickUpApiError } from '../../../src/services/clickupService';
-import { SyncQueue, backoffMs, type NewQueueItem, type SyncClient } from '../../../src/services/syncQueue';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import {
+  LEASE_MS,
+  SyncQueue,
+  backoffMs,
+  type NewQueueItem,
+  type SyncClient,
+} from '../../../src/services/syncQueue';
 import type { ClickUpTimeEntry } from '../../../src/types/clickup';
 import { fakeClock, sequentialIds, useTempDirectory } from '../helpers';
 
@@ -67,6 +75,7 @@ describe('SyncQueue', () => {
         attempts: 0,
         nextAttemptAt: T0,
         outcomeUnknown: false,
+        leaseUntil: 0,
         lastError: null,
         createdAt: T0,
       },
@@ -253,6 +262,43 @@ describe('SyncQueue', () => {
     const [item] = await queue.enqueue([entry(T0), entry(T0 + 20 * MINUTE)]);
     await queue.discard(item?.id ?? '');
     expect((await queue.items()).map((i) => i.start)).toEqual([T0 + 20 * MINUTE]);
+  });
+
+  it('skips items leased by another window until the lease expires', async () => {
+    const { queue, client, clock } = setup();
+    await queue.enqueue([entry(T0)]);
+    const path = join(dir.path, 'queue.json');
+    const file = JSON.parse(await readFile(path, 'utf8')) as { items: { leaseUntil: number }[] };
+    const leased = { ...file, items: file.items.map((item) => ({ ...item, leaseUntil: T0 + LEASE_MS })) };
+    await writeFile(path, JSON.stringify(leased), 'utf8');
+
+    expect(await queue.process()).toMatchObject({ synced: 0, remaining: 1 });
+    expect(client.createTimeEntry).not.toHaveBeenCalled();
+
+    clock.advance(LEASE_MS);
+    expect(await queue.process()).toMatchObject({ synced: 1, remaining: 0 });
+  });
+
+  it('skips an item another window sent while this run was in progress', async () => {
+    const { queue, client } = setup();
+    const otherWindow = new SyncQueue({ directory: dir.path, client, newId: () => 'other' });
+    const [first, second] = await queue.enqueue([entry(T0), entry(T0 + 20 * MINUTE)]);
+    client.createTimeEntry.mockImplementationOnce(async () => {
+      // While the first item is being sent, another window removes the second one.
+      await otherWindow.discard(second?.id ?? '');
+      return 'entry-id';
+    });
+    expect(await queue.process()).toMatchObject({ synced: 1, remaining: 0 });
+    expect(client.createTimeEntry).toHaveBeenCalledTimes(1);
+    expect(first).toBeDefined();
+  });
+
+  it('releases the lease when stopped by an auth error', async () => {
+    const { queue, client } = setup();
+    await queue.enqueue([entry(T0)]);
+    client.createTimeEntry.mockRejectedValueOnce(apiError('unauthorized'));
+    await queue.process();
+    expect((await queue.items())[0]?.leaseUntil).toBe(0);
   });
 
   it('shares one run between concurrent calls', async () => {

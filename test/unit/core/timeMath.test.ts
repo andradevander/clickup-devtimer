@@ -5,6 +5,8 @@ import {
   formatDuration,
   formatHoursMinutes,
   isSameLocalDay,
+  localDayKey,
+  totalsByLocalDay,
   minutesToMs,
   secondsToMs,
   segmentDuration,
@@ -92,6 +94,22 @@ describe('durations', () => {
 });
 
 describe('local days', () => {
+  it('formats the local day key', () => {
+    expect(localDayKey(T0)).toBe('2026-01-15');
+    expect(localDayKey(new Date(2026, 8, 5, 23, 59).getTime())).toBe('2026-09-05');
+  });
+
+  it('splits totals across midnight', () => {
+    const lateNight = new Date(2026, 0, 15, 23, 30).getTime();
+    expect(
+      totalsByLocalDay([
+        { start: T0, end: T0 + HOUR },
+        { start: lateNight, end: lateNight + HOUR },
+      ]),
+    ).toEqual({ '2026-01-15': HOUR + 30 * MINUTE, '2026-01-16': 30 * MINUTE });
+    expect(totalsByLocalDay([])).toEqual({});
+  });
+
   it('finds the start of the local day', () => {
     expect(startOfLocalDay(T0)).toBe(new Date(2026, 0, 15).getTime());
   });

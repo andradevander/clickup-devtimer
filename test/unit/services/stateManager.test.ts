@@ -2,7 +2,9 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { EntryPolicy } from '../../../src/core/rounding';
+import { localDayKey } from '../../../src/core/timeMath';
 import {
+  DAILY_TOTALS_RETENTION_DAYS,
   MAX_RECENT_TASKS,
   SessionActiveError,
   StateManager,
@@ -58,6 +60,7 @@ describe('StateManager basics', () => {
       session: null,
       recentTasks: [],
       ignoredBranches: [],
+      dailyTotals: {},
     });
   });
 
@@ -230,6 +233,42 @@ describe('StateManager finish and switch', () => {
     vi.mocked(queue.enqueue).mockRejectedValueOnce(new Error('disk full'));
     await expect(manager.finish('x', policy)).rejects.toThrow('disk full');
     expect((await manager.refresh()).session).not.toBeNull();
+  });
+});
+
+describe('StateManager daily totals', () => {
+  it('adds finished time to the day it was tracked', async () => {
+    const { manager, clock } = setup();
+    const day = localDayKey(T0);
+    await manager.start(taskA);
+    clock.advance(10 * MINUTE);
+    await manager.finish('x', policy);
+    await manager.start(taskB);
+    clock.advance(5 * MINUTE);
+    await manager.switchTask(taskA, 'y', policy);
+    expect(manager.state.dailyTotals).toEqual({ [day]: 15 * MINUTE });
+  });
+
+  it('ignores discarded sessions', async () => {
+    const { manager, clock } = setup();
+    await manager.start(taskA);
+    clock.advance(10 * SECOND);
+    await manager.finish('x', policy);
+    expect(manager.state.dailyTotals).toEqual({});
+  });
+
+  it('drops days older than the retention period', async () => {
+    const { manager, clock } = setup();
+    await manager.start(taskA);
+    clock.advance(10 * MINUTE);
+    await manager.finish('x', policy);
+
+    clock.advance(DAILY_TOTALS_RETENTION_DAYS * 24 * 60 * MINUTE);
+    await manager.start(taskA);
+    clock.advance(10 * MINUTE);
+    await manager.finish('x', policy);
+
+    expect(Object.keys(manager.state.dailyTotals)).toEqual([localDayKey(clock.now())]);
   });
 });
 

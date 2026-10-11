@@ -155,6 +155,13 @@ describe('JsonFileStore', () => {
 
 describe('defaultStorageDirectory', () => {
   it('lives in the user home folder, shared across editors', () => {
-    expect(defaultStorageDirectory()).toBe(join(homedir(), '.clickup-devtimer'));
+    expect(defaultStorageDirectory({})).toBe(join(homedir(), '.clickup-devtimer'));
+  });
+
+  it('can be overridden through the environment', () => {
+    expect(defaultStorageDirectory({ CLICKUP_DEVTIMER_STORAGE_DIR: '/tmp/x' })).toBe('/tmp/x');
+    expect(defaultStorageDirectory({ CLICKUP_DEVTIMER_STORAGE_DIR: '' })).toBe(
+      join(homedir(), '.clickup-devtimer'),
+    );
   });
 });

@@ -11,7 +11,7 @@ import {
   resumeSession,
   startSession,
 } from '../core/stateMachine';
-import { segmentDuration } from '../core/timeMath';
+import { localDayKey, segmentDuration, totalsByLocalDay } from '../core/timeMath';
 import { validatePersistedState } from '../core/validation';
 import type { PersistedState, Session, TaskRef } from '../types/session';
 import { Emitter, type Disposable } from '../util/emitter';
@@ -49,7 +49,16 @@ export class SessionActiveError extends Error {
 /** How many recent tasks are kept (the picker shows `recentTasksCount` of them). */
 export const MAX_RECENT_TASKS = 20;
 
-const EMPTY_STATE: PersistedState = { schemaVersion: 1, session: null, recentTasks: [], ignoredBranches: [] };
+/** How many days of finished totals are kept for the tooltip. */
+export const DAILY_TOTALS_RETENTION_DAYS = 14;
+
+const EMPTY_STATE: PersistedState = {
+  schemaVersion: 1,
+  session: null,
+  recentTasks: [],
+  ignoredBranches: [],
+  dailyTotals: {},
+};
 
 /**
  * Owns the timer session (spec §2.2-C). The file on disk is the source of truth: every change is a
@@ -127,7 +136,10 @@ export class StateManager implements Disposable {
         return { state, result: undefined };
       }
       const prepared = await this.queueSession(state.session, description, policy);
-      return { state: { ...state, session: null }, result: prepared };
+      return {
+        state: { ...state, session: null, dailyTotals: this.withTotals(state.dailyTotals, prepared) },
+        result: prepared,
+      };
     });
   }
 
@@ -142,7 +154,12 @@ export class StateManager implements Disposable {
         state.session === null ? undefined : await this.queueSession(state.session, description, policy);
       const session = startSession(task, this.clock(), this.newId());
       return {
-        state: { ...state, session, recentTasks: withRecent(state.recentTasks, task) },
+        state: {
+          ...state,
+          session,
+          recentTasks: withRecent(state.recentTasks, task),
+          dailyTotals: this.withTotals(state.dailyTotals, finished),
+        },
         result: { finished, session },
       };
     });
@@ -255,6 +272,27 @@ export class StateManager implements Disposable {
       );
     }
     return prepared;
+  }
+
+  /** Adds the finished entries to the daily totals and drops days older than the retention. */
+  private withTotals(
+    totals: Record<string, number>,
+    prepared: PreparedEntries | undefined,
+  ): Record<string, number> {
+    if (prepared?.kind !== 'entries') {
+      return totals;
+    }
+    const oldestKept = localDayKey(this.clock() - DAILY_TOTALS_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const next: Record<string, number> = {};
+    for (const [day, ms] of Object.entries(totals)) {
+      if (day > oldestKept) {
+        next[day] = ms;
+      }
+    }
+    for (const [day, ms] of Object.entries(totalsByLocalDay(prepared.segments))) {
+      next[day] = (next[day] ?? 0) + ms;
+    }
+    return next;
   }
 
   private mutateSession(transform: (session: Session) => Session): Promise<void> {

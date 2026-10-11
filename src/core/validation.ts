@@ -81,15 +81,22 @@ export function isSession(value: unknown): value is Session {
   );
 }
 
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return isObject(value) && Object.values(value).every(isNumber);
+}
+
 export function validatePersistedState(value: unknown): PersistedState | undefined {
   if (!isObject(value) || !hasSchemaVersion1(value)) {
     return undefined;
   }
+  // Optional for compatibility with files written before daily totals existed.
+  const dailyTotals = value.dailyTotals ?? {};
   const valid =
     (value.session === null || isSession(value.session)) &&
     isArrayOf(value.recentTasks, isTaskRef) &&
-    isArrayOf(value.ignoredBranches, isString);
-  return valid ? (value as unknown as PersistedState) : undefined;
+    isArrayOf(value.ignoredBranches, isString) &&
+    isNumberRecord(dailyTotals);
+  return valid ? ({ ...value, dailyTotals } as unknown as PersistedState) : undefined;
 }
 
 export function validateLock(value: unknown): LockInfo | undefined {
@@ -130,6 +137,7 @@ export function isQueueItem(value: unknown): value is QueueItem {
     isNumber(value.attempts) &&
     isNumber(value.nextAttemptAt) &&
     typeof value.outcomeUnknown === 'boolean' &&
+    isNumber(value.leaseUntil) &&
     isLastError(value.lastError) &&
     isNumber(value.createdAt)
   );

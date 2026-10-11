@@ -13,8 +13,15 @@ export interface JsonFileStoreOptions<T> {
   renameRetryDelayMs?: number;
 }
 
+/** Overrides the storage directory; used by the integration tests to keep away from the real one. */
+export const STORAGE_DIRECTORY_ENV = 'CLICKUP_DEVTIMER_STORAGE_DIR';
+
 /** Default storage directory, shared by every VS Code-based editor of the user (spec §5). */
-export function defaultStorageDirectory(): string {
+export function defaultStorageDirectory(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env[STORAGE_DIRECTORY_ENV]?.trim();
+  if (override) {
+    return override;
+  }
   return join(homedir(), STORAGE_DIRECTORY_NAME);
 }
 

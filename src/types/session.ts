@@ -45,6 +45,8 @@ export interface PersistedState {
   recentTasks: TaskRef[];
   /** Branches for which the user chose "don't ask again". */
   ignoredBranches: string[];
+  /** Finished (queued) time per local day, keyed `YYYY-MM-DD`; the last days only. */
+  dailyTotals: Record<string, number>;
 }
 
 /** Contents of `lock.json`: which window runs the background work (spec §2.2-E). */
@@ -79,6 +81,8 @@ export interface QueueItem {
   nextAttemptAt: number;
   /** A previous attempt may have reached ClickUp; check for the entry before sending again. */
   outcomeUnknown: boolean;
+  /** While a window is sending the item, other windows leave it alone until this time. */
+  leaseUntil: number;
   lastError: { kind: string; message: string } | null;
   createdAt: number;
 }
