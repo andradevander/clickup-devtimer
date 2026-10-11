@@ -13,9 +13,10 @@ function withClosedSegment(segments: readonly Segment[], segment: Segment): Segm
   return segment.end > segment.start ? [...segments, segment] : [...segments];
 }
 
-export function startSession(task: TaskRef, now: number): Session {
+export function startSession(task: TaskRef, now: number, id: string): Session {
   return {
     schemaVersion: 1,
+    id,
     task,
     status: 'running',
     segments: [],
@@ -76,7 +77,7 @@ export function finalSegments(session: Session, now: number): Segment[] {
 /**
  * Restores a session found on disk after a crash or after every window was closed. The open segment
  * is closed at the last activity, so the time the editor was closed is not counted, and the session
- * is left paused until the user decides what to do with it.
+ * is left manually paused (activity never resumes it) until the user decides what to do with it.
  */
 export function recoverSession(session: Session): Session {
   if (session.openSegmentStart === null) {
@@ -86,7 +87,7 @@ export function recoverSession(session: Session): Session {
   const end = Math.max(start, session.lastActivityTime);
   return {
     ...session,
-    status: 'pausedIdle',
+    status: 'pausedManual',
     segments: withClosedSegment(session.segments, { start, end }),
     openSegmentStart: null,
     pausedAt: end,

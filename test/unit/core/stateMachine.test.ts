@@ -10,13 +10,14 @@ import {
   startSession,
 } from '../../../src/core/stateMachine';
 import { sessionElapsed } from '../../../src/core/timeMath';
-import { MINUTE, T0, task } from './fixtures';
+import { MINUTE, SESSION_ID, T0, task } from './fixtures';
 
 describe('startSession', () => {
   it('starts running with an open segment', () => {
-    const session = startSession(task, T0);
+    const session = startSession(task, T0, SESSION_ID);
     expect(session).toMatchObject({
       schemaVersion: 1,
+      id: SESSION_ID,
       task,
       status: 'running',
       segments: [],
@@ -30,7 +31,7 @@ describe('startSession', () => {
 
 describe('recordActivity', () => {
   it('moves the last activity forward only', () => {
-    const session = startSession(task, T0);
+    const session = startSession(task, T0, SESSION_ID);
     expect(recordActivity(session, T0 + MINUTE).lastActivityTime).toBe(T0 + MINUTE);
     expect(recordActivity(session, T0 - MINUTE)).toBe(session);
   });
@@ -38,7 +39,7 @@ describe('recordActivity', () => {
 
 describe('pauseSession', () => {
   it('closes the open segment at now on a manual pause', () => {
-    const paused = pauseSession(startSession(task, T0), T0 + 10 * MINUTE, 'manual');
+    const paused = pauseSession(startSession(task, T0, SESSION_ID), T0 + 10 * MINUTE, 'manual');
     expect(paused.status).toBe('pausedManual');
     expect(paused.segments).toEqual([{ start: T0, end: T0 + 10 * MINUTE }]);
     expect(paused.openSegmentStart).toBeNull();
@@ -46,7 +47,7 @@ describe('pauseSession', () => {
   });
 
   it('closes the open segment at the last activity on an idle pause, discounting idle time', () => {
-    const active = recordActivity(startSession(task, T0), T0 + 10 * MINUTE);
+    const active = recordActivity(startSession(task, T0, SESSION_ID), T0 + 10 * MINUTE);
     const paused = pauseSession(active, T0 + 12 * MINUTE, 'idle');
     expect(paused.status).toBe('pausedIdle');
     expect(paused.segments).toEqual([{ start: T0, end: T0 + 10 * MINUTE }]);
@@ -55,7 +56,7 @@ describe('pauseSession', () => {
 
   it('clamps an idle pause to the open segment', () => {
     const resumed = resumeSession(
-      pauseSession(startSession(task, T0), T0 + MINUTE, 'manual'),
+      pauseSession(startSession(task, T0, SESSION_ID), T0 + MINUTE, 'manual'),
       T0 + 5 * MINUTE,
     );
     // Last activity equals the resume time, so an idle pause right away yields no segment.
@@ -64,19 +65,19 @@ describe('pauseSession', () => {
   });
 
   it('does not record empty segments', () => {
-    const paused = pauseSession(startSession(task, T0), T0, 'manual');
+    const paused = pauseSession(startSession(task, T0, SESSION_ID), T0, 'manual');
     expect(paused.segments).toEqual([]);
   });
 
   it('is a no-op when already paused', () => {
-    const paused = pauseSession(startSession(task, T0), T0 + MINUTE, 'manual');
+    const paused = pauseSession(startSession(task, T0, SESSION_ID), T0 + MINUTE, 'manual');
     expect(pauseSession(paused, T0 + 2 * MINUTE, 'idle')).toBe(paused);
   });
 });
 
 describe('resumeSession', () => {
   it('opens a new segment at now', () => {
-    const paused = pauseSession(startSession(task, T0), T0 + MINUTE, 'manual');
+    const paused = pauseSession(startSession(task, T0, SESSION_ID), T0 + MINUTE, 'manual');
     const resumed = resumeSession(paused, T0 + 5 * MINUTE);
     expect(resumed.status).toBe('running');
     expect(resumed.openSegmentStart).toBe(T0 + 5 * MINUTE);
@@ -86,14 +87,14 @@ describe('resumeSession', () => {
   });
 
   it('is a no-op when running', () => {
-    const session = startSession(task, T0);
+    const session = startSession(task, T0, SESSION_ID);
     expect(resumeSession(session, T0 + MINUTE)).toBe(session);
   });
 });
 
 describe('finalSegments', () => {
   it('closes the open segment at now', () => {
-    const paused = pauseSession(startSession(task, T0), T0 + MINUTE, 'manual');
+    const paused = pauseSession(startSession(task, T0, SESSION_ID), T0 + MINUTE, 'manual');
     const resumed = resumeSession(paused, T0 + 2 * MINUTE);
     expect(finalSegments(resumed, T0 + 4 * MINUTE)).toEqual([
       { start: T0, end: T0 + MINUTE },
@@ -102,41 +103,44 @@ describe('finalSegments', () => {
   });
 
   it('returns a copy of the closed segments when paused', () => {
-    const paused = pauseSession(startSession(task, T0), T0 + MINUTE, 'manual');
+    const paused = pauseSession(startSession(task, T0, SESSION_ID), T0 + MINUTE, 'manual');
     const segments = finalSegments(paused, T0 + 10 * MINUTE);
     expect(segments).toEqual(paused.segments);
     expect(segments).not.toBe(paused.segments);
   });
 
   it('skips an empty open segment', () => {
-    expect(finalSegments(startSession(task, T0), T0 - MINUTE)).toEqual([]);
+    expect(finalSegments(startSession(task, T0, SESSION_ID), T0 - MINUTE)).toEqual([]);
   });
 });
 
 describe('recoverSession', () => {
   it('closes the open segment at the last activity and leaves the session paused', () => {
-    const session = recordActivity(startSession(task, T0), T0 + 30 * MINUTE);
+    const session = recordActivity(startSession(task, T0, SESSION_ID), T0 + 30 * MINUTE);
     const recovered = recoverSession(session);
-    expect(recovered.status).toBe('pausedIdle');
+    expect(recovered.status).toBe('pausedManual');
     expect(recovered.segments).toEqual([{ start: T0, end: T0 + 30 * MINUTE }]);
     expect(recovered.openSegmentStart).toBeNull();
     expect(recovered.pausedAt).toBe(T0 + 30 * MINUTE);
   });
 
   it('keeps a paused session as is', () => {
-    const paused = pauseSession(startSession(task, T0), T0 + MINUTE, 'manual');
+    const paused = pauseSession(startSession(task, T0, SESSION_ID), T0 + MINUTE, 'manual');
     expect(recoverSession(paused)).toBe(paused);
   });
 });
 
 describe('normalizeClock', () => {
   it('does nothing when the clock moved forward', () => {
-    const session = startSession(task, T0);
+    const session = startSession(task, T0, SESSION_ID);
     expect(normalizeClock(session, T0 + MINUTE)).toBe(session);
   });
 
   it('splits the open segment when the clock moved backwards', () => {
-    const session = markPersisted(recordActivity(startSession(task, T0), T0 + 10 * MINUTE), T0 + 10 * MINUTE);
+    const session = markPersisted(
+      recordActivity(startSession(task, T0, SESSION_ID), T0 + 10 * MINUTE),
+      T0 + 10 * MINUTE,
+    );
     const now = T0 + 5 * MINUTE;
     const normalized = normalizeClock(session, now);
     expect(normalized.segments).toEqual([{ start: T0, end: T0 + 10 * MINUTE }]);
@@ -148,7 +152,7 @@ describe('normalizeClock', () => {
 
   it('only resets timestamps of a paused session', () => {
     const paused = markPersisted(
-      pauseSession(startSession(task, T0), T0 + 10 * MINUTE, 'manual'),
+      pauseSession(startSession(task, T0, SESSION_ID), T0 + 10 * MINUTE, 'manual'),
       T0 + 10 * MINUTE,
     );
     const normalized = normalizeClock(paused, T0 + 5 * MINUTE);

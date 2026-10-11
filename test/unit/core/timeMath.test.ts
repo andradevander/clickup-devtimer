@@ -12,7 +12,7 @@ import {
   startOfLocalDay,
   totalDuration,
 } from '../../../src/core/timeMath';
-import { HOUR, MINUTE, T0, task } from './fixtures';
+import { HOUR, MINUTE, SESSION_ID, T0, task } from './fixtures';
 
 describe('formatDuration', () => {
   it.each([
@@ -62,17 +62,17 @@ describe('durations', () => {
   });
 
   it('counts the open segment of a running session', () => {
-    const session = startSession(task, T0);
+    const session = startSession(task, T0, SESSION_ID);
     expect(sessionElapsed(session, T0 + 5 * MINUTE)).toBe(5 * MINUTE);
   });
 
   it('counts only closed segments of a paused session', () => {
-    const paused = pauseSession(startSession(task, T0), T0 + 10 * MINUTE, 'manual');
+    const paused = pauseSession(startSession(task, T0, SESSION_ID), T0 + 10 * MINUTE, 'manual');
     expect(sessionElapsed(paused, T0 + HOUR)).toBe(10 * MINUTE);
   });
 
   it('never returns negative elapsed time when the clock is behind the open segment', () => {
-    expect(sessionElapsed(startSession(task, T0), T0 - MINUTE)).toBe(0);
+    expect(sessionElapsed(startSession(task, T0, SESSION_ID), T0 - MINUTE)).toBe(0);
   });
 
   it('clips segments to a range', () => {
