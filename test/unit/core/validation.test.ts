@@ -27,6 +27,7 @@ const queueItem: QueueItem = {
   attempts: 0,
   nextAttemptAt: T0,
   outcomeUnknown: false,
+  leaseUntil: 0,
   lastError: null,
   createdAt: T0,
 };
@@ -66,11 +67,23 @@ describe('isSession', () => {
 });
 
 describe('validatePersistedState', () => {
-  const state = { schemaVersion: 1, session: running, recentTasks: [task], ignoredBranches: ['main'] };
+  const state = {
+    schemaVersion: 1,
+    session: running,
+    recentTasks: [task],
+    ignoredBranches: ['main'],
+    dailyTotals: { '2026-01-15': 3_600_000 },
+  };
 
   it('accepts a valid state, with or without a session', () => {
-    expect(validatePersistedState(state)).toBe(state);
+    expect(validatePersistedState(state)).toEqual(state);
     expect(validatePersistedState({ ...state, session: null })).toBeDefined();
+  });
+
+  it('defaults missing daily totals', () => {
+    const withoutTotals: Partial<typeof state> = { ...state };
+    delete withoutTotals.dailyTotals;
+    expect(validatePersistedState(withoutTotals)).toEqual({ ...state, dailyTotals: {} });
   });
 
   it.each([
@@ -80,6 +93,7 @@ describe('validatePersistedState', () => {
     { ...state, session: { id: 'x' } },
     { ...state, recentTasks: [{}] },
     { ...state, ignoredBranches: [1] },
+    { ...state, dailyTotals: { '2026-01-15': 'x' } },
   ])('rejects %j', (value) => {
     expect(validatePersistedState(value)).toBeUndefined();
   });
@@ -128,6 +142,7 @@ describe('validateQueue', () => {
   it.each([
     { ...queueItem, status: 'done' },
     { ...queueItem, outcomeUnknown: 'no' },
+    { ...queueItem, leaseUntil: null },
     { ...queueItem, lastError: { kind: 'client' } },
     { ...queueItem, duration: undefined },
   ])('rejects an item %#', (item) => {

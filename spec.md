@@ -182,8 +182,9 @@ Para não gravar no disco a cada tecla, o watcher grava no máximo uma vez a cad
 | **Contando Tempo** | `$(play-circle) 01:23:45 · Fix Login Bug` | Foreground verde (`charts.green`) | Abre o Menu de Controle |
 | **Pausado (Manual)** | `$(debug-pause) 01:23:45 (Pausado)` | `warningBackground` | Abre o Menu de Controle |
 | **Pausado (Idle)** | `$(history) 01:23:45 (Inativo)` | Foreground laranja (`charts.orange`) | Abre o Menu de Controle (com Retomar) |
-| **Outra Janela** | `$(multiple-windows) 01:23:45 · Fix Login Bug` | Padrão | Abre o Menu de Controle (as ações funcionam em qualquer janela) |
 | **Pendências de Sync** | Sufixo `$(warning) 2` no texto atual | `errorBackground` se houver itens `failed` | Abre "Ver pendências" |
+
+Todas as janelas e editores mostram o mesmo timer, e as ações funcionam em qualquer um deles. Por isso não existe um estado visual de "outra janela".
 
 O nome da task é truncado em `statusBar.maxTaskNameLength` caracteres (padrão 30). O nome completo fica no tooltip.
 

@@ -34,6 +34,29 @@ export function startOfLocalDay(timestamp: number): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
+/** Local calendar day of `timestamp` as `YYYY-MM-DD`. */
+export function localDayKey(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** Tracked time per local day, splitting segments that cross midnight. */
+export function totalsByLocalDay(segments: readonly Segment[]): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const { start, end } of segments) {
+    let cursor = start;
+    while (cursor < end) {
+      const nextMidnight = new Date(startOfLocalDay(cursor)).setDate(new Date(cursor).getDate() + 1);
+      const sliceEnd = Math.min(end, nextMidnight);
+      const key = localDayKey(cursor);
+      totals[key] = (totals[key] ?? 0) + (sliceEnd - cursor);
+      cursor = sliceEnd;
+    }
+  }
+  return totals;
+}
+
 export function isSameLocalDay(a: number, b: number): boolean {
   return startOfLocalDay(a) === startOfLocalDay(b);
 }

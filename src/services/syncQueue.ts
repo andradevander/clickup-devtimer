@@ -33,6 +33,8 @@ export interface SyncQueueOptions {
 
 const MINUTE_MS = 60_000;
 const MAX_BACKOFF_MS = 60 * MINUTE_MS;
+/** How long an item stays reserved by the window sending it. */
+export const LEASE_MS = 2 * MINUTE_MS;
 /** Margin when searching ClickUp for an entry that may already exist. */
 const DUPLICATE_SEARCH_MARGIN_MS = 1_000;
 
@@ -89,6 +91,7 @@ export class SyncQueue implements Disposable {
       attempts: 0,
       nextAttemptAt: now,
       outcomeUnknown: false,
+      leaseUntil: 0,
       lastError: null,
       createdAt: now,
     }));
@@ -99,13 +102,17 @@ export class SyncQueue implements Disposable {
   /** Makes a failed or backed-off item due right away. */
   async retry(id: string): Promise<void> {
     await this.mutate((items) =>
-      items.map((item) => (item.id === id ? { ...item, status: 'pending', nextAttemptAt: 0 } : item)),
+      items.map((item) =>
+        item.id === id ? { ...item, status: 'pending', nextAttemptAt: 0, leaseUntil: 0 } : item,
+      ),
     );
   }
 
   /** Makes every item due right away (e.g. after the token was fixed). */
   async retryAll(): Promise<void> {
-    await this.mutate((items) => items.map((item) => ({ ...item, status: 'pending', nextAttemptAt: 0 })));
+    await this.mutate((items) =>
+      items.map((item) => ({ ...item, status: 'pending', nextAttemptAt: 0, leaseUntil: 0 })),
+    );
   }
 
   async discard(id: string): Promise<void> {
@@ -133,16 +140,14 @@ export class SyncQueue implements Disposable {
     let failed = 0;
     let authError = false;
 
-    const due = (await this.items()).filter(
-      (item) => item.status === 'pending' && item.nextAttemptAt <= this.clock(),
-    );
+    const due = (await this.items()).filter((item) => this.isDue(item, this.clock()));
 
     for (const item of due) {
-      const outcome = await this.send(item);
-      if (outcome.kind === 'authError') {
-        authError = true;
-        break;
+      if (!(await this.claimLease(item.id))) {
+        // Another window is sending it, or it is gone already.
+        continue;
       }
+      const outcome = await this.send(item);
       if (outcome.kind === 'synced') {
         synced++;
         await this.mutate((items) => items.filter((current) => current.id !== item.id));
@@ -151,15 +156,40 @@ export class SyncQueue implements Disposable {
       if (outcome.kind === 'failed') {
         failed++;
       }
+      const patch = outcome.kind === 'authError' ? {} : outcome.patch;
       await this.mutate((items) =>
-        items.map((current) => (current.id === item.id ? { ...current, ...outcome.patch } : current)),
+        items.map((current) => (current.id === item.id ? { ...current, ...patch, leaseUntil: 0 } : current)),
       );
+      if (outcome.kind === 'authError') {
+        authError = true;
+        break;
+      }
       if (outcome.kind === 'retry' && outcome.stopRun) {
         break;
       }
     }
 
     return { synced, failed, remaining: (await this.items()).length, authError };
+  }
+
+  private isDue(item: QueueItem, now: number): boolean {
+    return item.status === 'pending' && item.nextAttemptAt <= now && item.leaseUntil <= now;
+  }
+
+  /** Reserves the item for this window; false when it is no longer due (e.g. taken by another window). */
+  private async claimLease(id: string): Promise<boolean> {
+    let claimed = false;
+    await this.mutate((items) => {
+      const now = this.clock();
+      return items.map((item) => {
+        if (item.id !== id || !this.isDue(item, now)) {
+          return item;
+        }
+        claimed = true;
+        return { ...item, leaseUntil: now + LEASE_MS };
+      });
+    });
+    return claimed;
   }
 
   private async send(item: QueueItem): Promise<Outcome> {

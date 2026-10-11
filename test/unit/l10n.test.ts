@@ -34,9 +34,47 @@ describe('manifest localization', () => {
   });
 });
 
+/** Every string literal passed to `vscode.l10n.t(...)` or its `t(...)` alias in `src/`. */
+function localizedStrings(): string[] {
+  const files = readdirSync(join(root, 'src'), { recursive: true, encoding: 'utf8' }).filter((file) =>
+    file.endsWith('.ts'),
+  );
+  const call = /(?:vscode\.l10n\.t|\bt)\(\s*('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")/g;
+  const keys = new Set<string>();
+  for (const file of files) {
+    for (const match of readFileSync(join(root, 'src', file), 'utf8').matchAll(call)) {
+      const literal = match[1] ?? '';
+      // Turn the TypeScript literal into its runtime value (handles \' and \").
+      keys.add(literal.slice(1, -1).replace(/\\(.)/g, '$1'));
+    }
+  }
+  return [...keys].sort();
+}
+
 describe('runtime localization bundles', () => {
   const bundles = readdirSync(join(root, 'l10n')).filter((file) => file.endsWith('.json'));
   const reference = readJson(join('l10n', 'bundle.l10n.pt-br.json'));
+  const used = localizedStrings();
+
+  it('finds the localized strings in the source', () => {
+    expect(used.length).toBeGreaterThan(0);
+  });
+
+  it('translates every localized string', () => {
+    expect(used.filter((key) => !(key in reference))).toEqual([]);
+  });
+
+  it('has no unused translations', () => {
+    expect(Object.keys(reference).filter((key) => !used.includes(key))).toEqual([]);
+  });
+
+  it('keeps the {n} placeholders of every translation', () => {
+    const placeholders = (text: string) => [...text.matchAll(/\{\d+\}/g)].map((m) => m[0]).sort();
+    const mismatched = Object.entries(reference).filter(
+      ([key, value]) => JSON.stringify(placeholders(key)) !== JSON.stringify(placeholders(String(value))),
+    );
+    expect(mismatched).toEqual([]);
+  });
 
   it.each(bundles)('%s has the same keys as the pt-br bundle', (file) => {
     expect(sortedKeys(readJson(join('l10n', file)))).toEqual(sortedKeys(reference));
