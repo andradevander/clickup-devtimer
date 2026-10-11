@@ -3,7 +3,10 @@ import * as esbuild from 'esbuild';
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
-/** Prints errors in a format the `$esbuild-watch` problem matcher understands. */
+/**
+ * Prints build boundaries and one-line errors (`file:line:column: message`) matched by the problem
+ * matcher in .vscode/tasks.json.
+ */
 const problemMatcherPlugin = {
   name: 'esbuild-problem-matcher',
   setup(build) {
@@ -12,10 +15,10 @@ const problemMatcherPlugin = {
     });
     build.onEnd((result) => {
       for (const { text, location } of result.errors) {
-        console.error(`✘ [ERROR] ${text}`);
-        if (location) {
-          console.error(`    ${location.file}:${location.line}:${location.column}:`);
-        }
+        const where = location
+          ? `${location.file}:${location.line}:${location.column + 1}`
+          : 'esbuild.mjs:1:1';
+        console.error(`[ERROR] ${where}: ${text}`);
       }
       console.log('[watch] build finished');
     });
