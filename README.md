@@ -31,16 +31,19 @@
 
 Your token is stored only in the VS Code SecretStorage (your OS keychain) and is sent only to `api.clickup.com`.
 
+## Uninstalling
+
+The timer state is kept in `~/.clickup-devtimer` (`%USERPROFILE%\.clickup-devtimer` on Windows), shared by VS Code, VS Code Insiders, Cursor and other VS Code-based editors. It is not removed when you uninstall the extension; delete that folder to remove all local data. Your token is stored separately in the editor's SecretStorage; run **ClickUp DevTimer: Sign Out (Clear Token)** before uninstalling to remove it.
+
 ## Development
 
 Requirements: Node.js 20+ and VS Code 1.93+.
 
 ```bash
 npm install
-npm run watch          # rebuild on change
 ```
 
-Press `F5` in VS Code to launch an Extension Development Host (use **Run Extension (pt-BR)** to test the Portuguese UI).
+Press `F5` in VS Code to build and launch an Extension Development Host (use **Run Extension (pt-BR)** to test the Portuguese UI). After changing code, restart the debug session (`Ctrl+Shift+F5`) to rebuild and reload. To rebuild on every save instead, run **Tasks: Run Task → watch**.
 
 | Script                     | Description                                      |
 | -------------------------- | ------------------------------------------------ |

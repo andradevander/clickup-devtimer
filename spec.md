@@ -54,7 +54,7 @@ Tudo descrito nesta spec faz parte da v1. Itens fora de escopo estão na seção
 |                         |    |      +------> +-----------------+               |
 |                         |    v                                                 |
 |                         |  +-------------------+    +------------------+       |
-|                         |  | WindowCoordinator | <->|   StorageService  | --> globalStorageUri/*.json
+|                         |  | WindowCoordinator | <->|   StorageService  | --> ~/.clickup-devtimer/*.json
 |                         |  +-------------------+    +------------------+       |
 |                         v                                    ^                 |
 |                  +--------------------+        +-------------+                 |
@@ -72,7 +72,7 @@ Tudo descrito nesta spec faz parte da v1. Itens fora de escopo estão na seção
 
 * **Core puro e testável:** cálculo de tempo, segmentos, arredondamento, política de idle e parsing de IDs ficam em `src/core/`, sem dependência de `vscode`, e são testados com Vitest.
 * **Timestamps, não ticks:** o tempo é sempre calculado por `Date.now()` sobre segmentos `{start, end}`. Nunca é uma soma de ticks do timer de 1 Hz, para continuar correto quando o computador suspende ou o event loop atrasa.
-* **Estado único em disco:** a fonte da verdade é o arquivo JSON em `context.globalStorageUri`, compartilhado por todas as janelas.
+* **Estado único em disco:** a fonte da verdade é o arquivo JSON em `~/.clickup-devtimer/` (ver seção 5), compartilhado por todas as janelas e por todos os editores compatíveis (VS Code, Insiders, Cursor etc.).
 
 ### 2.2 Módulos Internos
 
@@ -129,10 +129,10 @@ Para não gravar no disco a cada tecla, o watcher grava no máximo uma vez a cad
 #### E. `WindowCoordinator` (Coordenação Multi-janela)
 
 * Cada janela gera um `windowId` (UUID) na ativação.
-* **Dono do timer:** a janela que detém o lock (`lock.json`), com `{windowId, pid, heartbeatAt}`. Só o dono faz a contagem, as transições de idle e o sync.
-* **Heartbeat:** o dono renova `heartbeatAt` a cada 5s. Se o heartbeat ficar mais de 30s sem renovação, qualquer janela pode assumir o lock, e a sessão continua sem interrupção.
+* **Dono do timer:** a janela que detém o lock (`lock.json`), com `{windowId, pid, heartbeatAt}`. Só o dono roda o **trabalho de fundo**: detecção de idle, retomada automática, avisos, autosave e envio da fila.
+* **Heartbeat:** o dono renova `heartbeatAt` a cada 5s. Se o heartbeat ficar mais de 30s sem renovação, ou se o processo dono não existir mais (`pid` morto), qualquer janela assume o lock, e a sessão continua sem interrupção. Quando duas janelas disputam o lock, vale a última escrita: cada janela relê o lock após gravá-lo para confirmar.
 * **Atividade compartilhada:** todas as janelas gravam o seu `lastActivityTime` em `activity.json` (mapa `windowId → timestamp`, throttle de 5s). O dono usa o máximo desses valores.
-* **Janelas não-donas** mostram o timer em modo leitura (polling do estado a cada 2s) e repassam comandos ao dono por um arquivo de comandos (`commands.json`), ou assumem o lock quando o usuário age nelas.
+* **Ações do usuário em qualquer janela:** comandos como pausar, retomar, finalizar e trocar de task são aplicados direto no `state.json` (ler, transformar, gravar) pela janela onde o usuário agiu. Não há troca de mensagens entre janelas. As demais janelas atualizam a exibição por polling do estado (a cada 2s).
 * Escrita atômica: grava em arquivo temporário e depois faz `rename`.
 
 #### F. `SyncQueue` (Fila Offline)
@@ -182,8 +182,9 @@ Para não gravar no disco a cada tecla, o watcher grava no máximo uma vez a cad
 | **Contando Tempo** | `$(play-circle) 01:23:45 · Fix Login Bug` | Foreground verde (`charts.green`) | Abre o Menu de Controle |
 | **Pausado (Manual)** | `$(debug-pause) 01:23:45 (Pausado)` | `warningBackground` | Abre o Menu de Controle |
 | **Pausado (Idle)** | `$(history) 01:23:45 (Inativo)` | Foreground laranja (`charts.orange`) | Abre o Menu de Controle (com Retomar) |
-| **Outra Janela** | `$(multiple-windows) 01:23:45 · Fix Login Bug` | Padrão | Abre o Menu de Controle (a ação assume o lock) |
 | **Pendências de Sync** | Sufixo `$(warning) 2` no texto atual | `errorBackground` se houver itens `failed` | Abre "Ver pendências" |
+
+Todas as janelas e editores mostram o mesmo timer, e as ações funcionam em qualquer um deles. Por isso não existe um estado visual de "outra janela".
 
 O nome da task é truncado em `statusBar.maxTaskNameLength` caracteres (padrão 30). O nome completo fica no tooltip.
 
@@ -322,7 +323,14 @@ Base: `https://api.clickup.com/api/v2`. Todas as requisições usam o header `Au
 
 ## 5. Persistência
 
-Os arquivos ficam em `context.globalStorageUri`:
+Os arquivos ficam na pasta **`~/.clickup-devtimer/`**, dentro do home do usuário no sistema operacional (`os.homedir()`). Exemplos: `C:\Users\<user>\.clickup-devtimer` no Windows e `/home/<user>/.clickup-devtimer` no Linux. Não é preciso configurar nada.
+
+* **Por que não `context.globalStorageUri`:** essa pasta é separada por editor. Com uma pasta no home, VS Code, VS Code Insiders, Cursor e outros forks compartilham **um único timer**, sem contagem dupla quando dois editores ficam abertos ao mesmo tempo.
+* **Remote (SSH, WSL, Dev Containers):** a extensão declara `"extensionKind": ["ui"]` e sempre roda na máquina local. Assim o estado fica no home local, mesmo trabalhando em um workspace remoto.
+* **Desinstalação:** a pasta não é removida automaticamente. O README documenta como apagá-la.
+* **Testes:** o `StorageService` recebe o diretório por parâmetro. Os testes usam um diretório temporário.
+
+Arquivos:
 
 | Arquivo | Conteúdo |
 | --- | --- |
@@ -330,13 +338,13 @@ Os arquivos ficam em `context.globalStorageUri`:
 | `lock.json` | `{ windowId, pid, heartbeatAt }` |
 | `activity.json` | `{ [windowId]: lastActivityTime }` |
 | `queue.json` | Itens da SyncQueue. |
-| `commands.json` | Comandos enviados por janelas não-donas para o dono. |
 
 Todos os arquivos têm `schemaVersion` para migrações futuras.
 
 ```ts
 interface Session {
   schemaVersion: 1;
+  id: string;                                         // único por sessão (ver §6.1)
   task: { id: string; customId?: string; name: string; url: string; listId: string; teamId: string };
   status: 'running' | 'pausedManual' | 'pausedIdle';
   segments: Array<{ start: number; end: number }>;   // trechos fechados
@@ -356,7 +364,9 @@ O token **nunca** é gravado nesses arquivos. Ele fica só em `context.secrets`.
 1. **Crash da IDE ou fechamento de todas as janelas:**
    * Na ativação, se `state.json` tiver uma sessão e o lock estiver expirado, o segmento aberto é fechado em `end = lastActivityTime`, sem contar o tempo em que a IDE ficou fechada.
    * A extensão pergunta: *"Identificamos 01h 15m não sincronizados na tarefa [CU-123] Fix Login Bug. O que deseja fazer?"* `[Enviar]` `[Continuar contando]` `[Descartar]`.
+   * Até o usuário escolher, a sessão recuperada fica **pausada manualmente**, então atividade no editor não a retoma sozinha.
    * "Continuar contando" mantém os segmentos anteriores e abre um novo a partir de agora.
+   * Cada sessão tem um `id`, e os itens da fila guardam o `sessionId`. Se o editor travar logo depois de enfileirar os lançamentos e antes de limpar a sessão, a recuperação encontra o `sessionId` na fila, limpa a sessão e **não envia o tempo duas vezes**.
 2. **Fechamento de uma janela com outras abertas:** outra janela assume o lock em até 30s e a sessão continua.
 3. **Perda de conexão:** o tempo nunca é perdido, porque fica na fila (2.2-F). A status bar mostra as pendências.
 4. **Token revogado durante a sessão:** a contagem continua localmente. A fila pausa até o novo token ser configurado.
@@ -485,7 +495,7 @@ clickup-devtimer/
 │   │   ├── stateManager.ts
 │   │   ├── activityWatcher.ts
 │   │   ├── windowCoordinator.ts
-│   │   ├── storageService.ts       # JSON atômico em globalStorageUri
+│   │   ├── storageService.ts       # JSON atômico em ~/.clickup-devtimer
 │   │   ├── syncQueue.ts
 │   │   └── gitIntegration.ts
 │   └── ui/

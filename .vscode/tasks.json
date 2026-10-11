@@ -2,16 +2,55 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "watch",
-      "isBackground": true,
-      "problemMatcher": "$esbuild-watch",
+      "label": "build",
+      "type": "process",
+      "command": "node",
+      "args": ["esbuild.mjs"],
+      "problemMatcher": {
+        "owner": "esbuild",
+        "source": "esbuild",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^\\[ERROR\\] (.+?):(\\d+):(\\d+): (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
+      },
       "presentation": {
-        "reveal": "never"
+        "reveal": "silent"
       },
       "group": {
         "kind": "build",
         "isDefault": true
+      }
+    },
+    {
+      "label": "watch",
+      "type": "process",
+      "command": "node",
+      "args": ["esbuild.mjs", "--watch"],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "esbuild",
+        "source": "esbuild",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^\\[ERROR\\] (.+?):(\\d+):(\\d+): (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        },
+        "background": {
+          "activeBegin": true,
+          "beginsPattern": "\\[watch\\] build started",
+          "endsPattern": "\\[watch\\] build finished"
+        }
+      },
+      "presentation": {
+        "reveal": "never"
       }
     }
   ]
