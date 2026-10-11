@@ -10,6 +10,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,9 +42,8 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
+        if: ${{ env.OVSX_PAT != '' }}
         run: npx ovsx publish clickup-devtimer-${{ github.ref_name }}.vsix
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
       - name: Create GitHub Release
         run: gh release create "$GITHUB_REF_NAME" clickup-devtimer-$GITHUB_REF_NAME.vsix --generate-notes
