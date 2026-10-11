@@ -1,0 +1,271 @@
+{
+  "name": "clickup-devtimer",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.0",
+  "publisher": "andradevander",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andradevander/clickup-devtimer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/andradevander/clickup-devtimer/issues"
+  },
+  "homepage": "https://github.com/andradevander/clickup-devtimer#readme",
+  "l10n": "./l10n",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Productivity",
+    "Other"
+  ],
+  "keywords": [
+    "clickup",
+    "time tracking",
+    "timer",
+    "productivity",
+    "timesheet"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "clickupDevTimer.setToken",
+        "title": "%command.setToken%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.clearToken",
+        "title": "%command.clearToken%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.selectWorkspace",
+        "title": "%command.selectWorkspace%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.selectTask",
+        "title": "%command.selectTask%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.showMenu",
+        "title": "%command.showMenu%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.pauseTimer",
+        "title": "%command.pauseTimer%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.resumeTimer",
+        "title": "%command.resumeTimer%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.syncTime",
+        "title": "%command.syncTime%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.switchTask",
+        "title": "%command.switchTask%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.discardTime",
+        "title": "%command.discardTime%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.openInBrowser",
+        "title": "%command.openInBrowser%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.showPendingSync",
+        "title": "%command.showPendingSync%",
+        "category": "ClickUp DevTimer"
+      },
+      {
+        "command": "clickupDevTimer.refreshTasks",
+        "title": "%command.refreshTasks%",
+        "category": "ClickUp DevTimer"
+      }
+    ],
+    "configuration": {
+      "title": "ClickUp DevTimer",
+      "properties": {
+        "clickupDevTimer.teamId": {
+          "type": "string",
+          "default": "",
+          "description": "%config.teamId%"
+        },
+        "clickupDevTimer.activeStatuses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "in progress",
+            "doing",
+            "in dev"
+          ],
+          "description": "%config.activeStatuses%"
+        },
+        "clickupDevTimer.inactivityThresholdSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 30,
+          "description": "%config.inactivityThresholdSeconds%"
+        },
+        "clickupDevTimer.autoSaveIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 10,
+          "description": "%config.autoSaveIntervalSeconds%"
+        },
+        "clickupDevTimer.minimumEntrySeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "description": "%config.minimumEntrySeconds%"
+        },
+        "clickupDevTimer.roundingMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "%config.roundingMinutes%"
+        },
+        "clickupDevTimer.roundingMode": {
+          "type": "string",
+          "enum": [
+            "nearest",
+            "up",
+            "down"
+          ],
+          "enumDescriptions": [
+            "%config.roundingMode.nearest%",
+            "%config.roundingMode.up%",
+            "%config.roundingMode.down%"
+          ],
+          "default": "nearest",
+          "description": "%config.roundingMode%"
+        },
+        "clickupDevTimer.askDescriptionOnFinish": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.askDescriptionOnFinish%"
+        },
+        "clickupDevTimer.defaultDescription": {
+          "type": "string",
+          "default": "Logged via ClickUp DevTimer (VS Code)",
+          "description": "%config.defaultDescription%"
+        },
+        "clickupDevTimer.longPauseWarningMinutes": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "description": "%config.longPauseWarningMinutes%"
+        },
+        "clickupDevTimer.longSessionWarningMinutes": {
+          "type": "number",
+          "default": 240,
+          "minimum": 0,
+          "description": "%config.longSessionWarningMinutes%"
+        },
+        "clickupDevTimer.suggestStatusChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.suggestStatusChange%"
+        },
+        "clickupDevTimer.branchDetection.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.branchDetection.enabled%"
+        },
+        "clickupDevTimer.branchDetection.patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "CU-([a-z0-9]+)",
+            "([A-Z][A-Z0-9]+-\\d+)"
+          ],
+          "description": "%config.branchDetection.patterns%"
+        },
+        "clickupDevTimer.recentTasksCount": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "%config.recentTasksCount%"
+        },
+        "clickupDevTimer.taskCacheTtlMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "%config.taskCacheTtlMinutes%"
+        },
+        "clickupDevTimer.syncRetryIntervalMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "%config.syncRetryIntervalMinutes%"
+        },
+        "clickupDevTimer.statusBar.maxTaskNameLength": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "description": "%config.statusBar.maxTaskNameLength%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build:prod",
+    "build": "node esbuild.mjs",
+    "build:prod": "node esbuild.mjs --production",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit && tsc -p test/integration --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "pretest:integration": "npm run build && tsc -p test/integration",
+    "test:integration": "vscode-test",
+    "test": "npm run test:unit && npm run test:integration",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm run test:unit",
+    "package": "vsce package",
+    "publish:vsce": "vsce publish",
+    "publish:ovsx": "ovsx publish"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.20.5",
+    "@types/vscode": "1.93.0",
+    "@vitest/coverage-v8": "^5.0.3",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "ovsx": "^1.2.0",
+    "prettier": "^3.9.10",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  }
+}

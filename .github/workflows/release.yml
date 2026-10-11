@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Verify tag matches package.json version
+        run: |
+          VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
+          fi
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - run: xvfb-run -a npm run test:integration
+
+      - name: Package
+        run: npx vsce package --out clickup-devtimer-${{ github.ref_name }}.vsix
+
+      - name: Publish to VS Code Marketplace
+        run: npx vsce publish --packagePath clickup-devtimer-${{ github.ref_name }}.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        run: npx ovsx publish clickup-devtimer-${{ github.ref_name }}.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+      - name: Create GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" clickup-devtimer-$GITHUB_REF_NAME.vsix --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
