@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "andradevander",
   "license": "MIT",
+  "icon": "images/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/andradevander/clickup-devtimer.git"
