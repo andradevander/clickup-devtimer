@@ -14,3 +14,5 @@ export const task: TaskRef = {
   listId: '900100',
   teamId: '9000',
 };
+
+export const SESSION_ID = 'session-1';
