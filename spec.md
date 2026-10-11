@@ -54,7 +54,7 @@ Tudo descrito nesta spec faz parte da v1. Itens fora de escopo estão na seção
 |                         |    |      +------> +-----------------+               |
 |                         |    v                                                 |
 |                         |  +-------------------+    +------------------+       |
-|                         |  | WindowCoordinator | <->|   StorageService  | --> globalStorageUri/*.json
+|                         |  | WindowCoordinator | <->|   StorageService  | --> ~/.clickup-devtimer/*.json
 |                         |  +-------------------+    +------------------+       |
 |                         v                                    ^                 |
 |                  +--------------------+        +-------------+                 |
@@ -72,7 +72,7 @@ Tudo descrito nesta spec faz parte da v1. Itens fora de escopo estão na seção
 
 * **Core puro e testável:** cálculo de tempo, segmentos, arredondamento, política de idle e parsing de IDs ficam em `src/core/`, sem dependência de `vscode`, e são testados com Vitest.
 * **Timestamps, não ticks:** o tempo é sempre calculado por `Date.now()` sobre segmentos `{start, end}`. Nunca é uma soma de ticks do timer de 1 Hz, para continuar correto quando o computador suspende ou o event loop atrasa.
-* **Estado único em disco:** a fonte da verdade é o arquivo JSON em `context.globalStorageUri`, compartilhado por todas as janelas.
+* **Estado único em disco:** a fonte da verdade é o arquivo JSON em `~/.clickup-devtimer/` (ver seção 5), compartilhado por todas as janelas e por todos os editores compatíveis (VS Code, Insiders, Cursor etc.).
 
 ### 2.2 Módulos Internos
 
@@ -322,7 +322,14 @@ Base: `https://api.clickup.com/api/v2`. Todas as requisições usam o header `Au
 
 ## 5. Persistência
 
-Os arquivos ficam em `context.globalStorageUri`:
+Os arquivos ficam na pasta **`~/.clickup-devtimer/`**, dentro do home do usuário no sistema operacional (`os.homedir()`). Exemplos: `C:\Users\<user>\.clickup-devtimer` no Windows e `/home/<user>/.clickup-devtimer` no Linux. Não é preciso configurar nada.
+
+* **Por que não `context.globalStorageUri`:** essa pasta é separada por editor. Com uma pasta no home, VS Code, VS Code Insiders, Cursor e outros forks compartilham **um único timer**, sem contagem dupla quando dois editores ficam abertos ao mesmo tempo.
+* **Remote (SSH, WSL, Dev Containers):** a extensão declara `"extensionKind": ["ui"]` e sempre roda na máquina local. Assim o estado fica no home local, mesmo trabalhando em um workspace remoto.
+* **Desinstalação:** a pasta não é removida automaticamente. O README documenta como apagá-la.
+* **Testes:** o `StorageService` recebe o diretório por parâmetro. Os testes usam um diretório temporário.
+
+Arquivos:
 
 | Arquivo | Conteúdo |
 | --- | --- |
@@ -485,7 +492,7 @@ clickup-devtimer/
 │   │   ├── stateManager.ts
 │   │   ├── activityWatcher.ts
 │   │   ├── windowCoordinator.ts
-│   │   ├── storageService.ts       # JSON atômico em globalStorageUri
+│   │   ├── storageService.ts       # JSON atômico em ~/.clickup-devtimer
 │   │   ├── syncQueue.ts
 │   │   └── gitIntegration.ts
 │   └── ui/

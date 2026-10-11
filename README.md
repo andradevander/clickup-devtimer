@@ -31,6 +31,10 @@
 
 Your token is stored only in the VS Code SecretStorage (your OS keychain) and is sent only to `api.clickup.com`.
 
+## Uninstalling
+
+The timer state is kept in `~/.clickup-devtimer` (`%USERPROFILE%\.clickup-devtimer` on Windows), shared by VS Code, VS Code Insiders, Cursor and other VS Code-based editors. It is not removed when you uninstall the extension; delete that folder to remove all local data. Your token is stored separately in the editor's SecretStorage; run **ClickUp DevTimer: Sign Out (Clear Token)** before uninstalling to remove it.
+
 ## Development
 
 Requirements: Node.js 20+ and VS Code 1.93+.
