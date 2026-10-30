@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(npm run devto -- draft:*)",
+      "Bash(npm run devto -- publish:*)",
+      "Bash(node scripts/devto.mjs draft:*)",
+      "Bash(node scripts/devto.mjs publish:*)",
+      "Bash(node ./scripts/devto.mjs draft:*)",
+      "Bash(node ./scripts/devto.mjs publish:*)",
+      "PowerShell(npm run devto -- draft:*)",
+      "PowerShell(npm run devto -- publish:*)",
+      "PowerShell(node scripts/devto.mjs draft:*)",
+      "PowerShell(node scripts/devto.mjs publish:*)"
+    ],
+    "deny": ["Read(./.env)", "Read(./.env.*)"]
+  }
+}

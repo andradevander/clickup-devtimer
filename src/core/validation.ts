@@ -8,6 +8,7 @@ import type {
   Session,
   TaskRef,
 } from '../types/session';
+import type { StatsFile, WeekTally } from '../types/stats';
 
 /*
  * Shape checks for the JSON files in the storage directory. Each validator returns the value when it
@@ -146,4 +147,22 @@ export function isQueueItem(value: unknown): value is QueueItem {
 export function validateQueue(value: unknown): QueueFile | undefined {
   const valid = isObject(value) && hasSchemaVersion1(value) && isArrayOf(value.items, isQueueItem);
   return valid ? (value as unknown as QueueFile) : undefined;
+}
+
+function isWeekTally(value: unknown): value is WeekTally {
+  return (
+    isObject(value) &&
+    isNumber(value.totalMs) &&
+    isArrayOf(value.taskIds, isString) &&
+    typeof value.summaryShown === 'boolean'
+  );
+}
+
+export function validateStats(value: unknown): StatsFile | undefined {
+  const valid =
+    isObject(value) &&
+    hasSchemaVersion1(value) &&
+    isObject(value.weeks) &&
+    Object.values(value.weeks).every(isWeekTally);
+  return valid ? (value as unknown as StatsFile) : undefined;
 }

@@ -14,6 +14,16 @@
   "command.openInBrowser": "Abrir Task no Navegador",
   "command.showPendingSync": "Ver Pendências de Sync",
   "command.refreshTasks": "Atualizar Lista de Tasks",
+  "walkthrough.title": "Comece a usar o ClickUp DevTimer",
+  "walkthrough.description": "Conecte o ClickUp e registre seu tempo de código em menos de um minuto.",
+  "walkthrough.connect.title": "Conectar ao ClickUp",
+  "walkthrough.connect.description": "Cole seu Personal Token do ClickUp. Ele fica em **Settings › Apps › API Token** no ClickUp e é guardado no cofre de senhas do sistema.\n[Configurar Personal Token](command:clickupDevTimer.setToken)",
+  "walkthrough.workspace.title": "Escolher o Workspace",
+  "walkthrough.workspace.description": "Participa de mais de um Workspace no ClickUp? Escolha aquele em que você registra tempo. Com um único Workspace, isso já está feito.\n[Selecionar Workspace](command:clickupDevTimer.selectWorkspace)",
+  "walkthrough.track.title": "Começar a registrar",
+  "walkthrough.track.description": "Escolha uma task e comece a programar. Só o tempo ativo conta, e branches como `feature/CU-86bx123-fix-login` sugerem a task certa automaticamente.\n[Selecionar Task](command:clickupDevTimer.selectTask)",
+  "walkthrough.settings.title": "Ajustes finos",
+  "walkthrough.settings.description": "Ajuste o limite de inatividade, o arredondamento e as descrições dos registros de tempo do jeito que seu time trabalha.\n[Abrir Configurações](command:workbench.action.openSettings?%22clickupDevTimer%22)",
   "config.teamId": "ID do Workspace (team) do ClickUp usado para listar tasks e registrar tempo. Preenchido no setup.",
   "config.activeStatuses": "Status de task considerados \"em andamento\" (sem diferenciar maiúsculas). Essas tasks aparecem primeiro.",
   "config.inactivityThresholdSeconds": "Segundos sem atividade até o timer pausar automaticamente. O tempo ocioso não é contado.",
@@ -24,7 +34,7 @@
   "config.roundingMode.nearest": "Arredonda para o múltiplo mais próximo.",
   "config.roundingMode.up": "Sempre arredonda para cima.",
   "config.roundingMode.down": "Sempre arredonda para baixo.",
-  "config.askDescriptionOnFinish": "Pede uma descrição para o registro de tempo ao finalizar a sessão.",
+  "config.askDescriptionOnFinish": "Pede uma descrição para o registro de tempo ao finalizar a sessão. É desligado automaticamente quando o plano do ClickUp não permite descrições em registros de tempo; ligue de novo para o ClickUp DevTimer voltar a tentar enviá-las (por exemplo, após um upgrade do plano).",
   "config.defaultDescription": "Descrição padrão sugerida para os registros de tempo.",
   "config.longPauseWarningMinutes": "Avisa quando o timer estiver pausado manualmente há esta quantidade de minutos. 0 desliga o aviso.",
   "config.longSessionWarningMinutes": "Avisa após esta quantidade de minutos contínuos na mesma task. 0 desliga o aviso.",
@@ -34,5 +44,6 @@
   "config.recentTasksCount": "Quantidade de tasks usadas recentemente exibidas no topo do seletor.",
   "config.taskCacheTtlMinutes": "Por quanto tempo (em minutos) a lista de tasks fica em cache.",
   "config.syncRetryIntervalMinutes": "Intervalo em minutos para reenviar automaticamente os registros de tempo pendentes.",
-  "config.statusBar.maxTaskNameLength": "Quantidade máxima de caracteres do nome da task exibida na barra de status."
+  "config.statusBar.maxTaskNameLength": "Quantidade máxima de caracteres do nome da task exibida na barra de status.",
+  "config.weeklySummary": "No início de cada semana, mostra um breve resumo do tempo registrado na semana anterior."
 }

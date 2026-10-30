@@ -10,7 +10,7 @@ import {
   sessionElapsed,
   startOfLocalDay,
 } from '../core/timeMath';
-import type { PersistedState } from '../types/session';
+import type { PersistedState, SessionStatus } from '../types/session';
 
 export type AuthState = 'missing' | 'invalid' | 'unknown' | 'valid';
 
@@ -129,6 +129,8 @@ export class StatusBar implements vscode.Disposable {
         `[${escapeMarkdown(session.task.name)}](${session.task.url}) \`#${id}\``,
         '',
         `${vscode.l10n.t('This session')}: **${formatDuration(sessionElapsed(session, now))}**`,
+        '',
+        sessionHint(session.status),
       );
     }
     if (input.auth !== 'missing') {
@@ -146,6 +148,18 @@ export class StatusBar implements vscode.Disposable {
     const markdown = new vscode.MarkdownString(lines.join('\n\n'), true);
     markdown.isTrusted = false;
     return markdown;
+  }
+}
+
+/** What the timer is doing and what a click offers, so the tooltip answers "what now?". */
+function sessionHint(status: SessionStatus): string {
+  switch (status) {
+    case 'running':
+      return vscode.l10n.t('Running. Click to pause, finish or switch task.');
+    case 'pausedManual':
+      return vscode.l10n.t('Paused. Click to resume, finish or switch task.');
+    case 'pausedIdle':
+      return vscode.l10n.t('Paused for inactivity; resumes when you are back. Click for options.');
   }
 }
 

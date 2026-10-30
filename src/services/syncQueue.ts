@@ -3,7 +3,7 @@ import { validateQueue } from '../core/validation';
 import type { QueueFile, QueueItem } from '../types/session';
 import { Emitter, type Disposable } from '../util/emitter';
 import { SerialQueue } from '../util/serialQueue';
-import { ClickUpApiError, type ClickUpService } from './clickupService';
+import { ClickUpApiError, isAdvancedTimeTrackingLimitMessage, type ClickUpService } from './clickupService';
 import type { Clock } from './rateLimiter';
 import { JsonFileStore } from './storageService';
 
@@ -22,6 +22,22 @@ export interface ProcessResult {
   remaining: number;
   /** Processing stopped because the token is missing or invalid. */
   authError: boolean;
+  /**
+   * Entries synced without their description because the ClickUp plan ran out of "Advanced Time
+   * Tracking" uses.
+   */
+  descriptionsDropped: number;
+  /**
+   * A time tracking limit of the ClickUp plan was reached in this run, or entries were skipped
+   * because it was reached earlier. The workspace's entries are skipped until
+   * {@link SyncQueue.retry} or {@link SyncQueue.retryAll}.
+   */
+  planLimitReached: boolean;
+  /**
+   * Workspaces found in this run to reject descriptions (not counting those passed in
+   * {@link SyncQueueOptions.noDescriptionTeams}); worth persisting.
+   */
+  learnedNoDescriptionTeams: string[];
 }
 
 export interface SyncQueueOptions {
@@ -29,6 +45,8 @@ export interface SyncQueueOptions {
   client: SyncClient;
   clock?: Clock;
   newId?: () => string;
+  /** Workspaces already known to reject descriptions; their entries are sent without one. */
+  noDescriptionTeams?: Iterable<string>;
 }
 
 const MINUTE_MS = 60_000;
@@ -46,10 +64,19 @@ export function backoffMs(attempts: number): number {
 const EMPTY_QUEUE: QueueFile = { schemaVersion: 1, items: [] };
 
 type Outcome =
-  | { kind: 'synced' }
+  | { kind: 'synced'; descriptionDropped: boolean }
   | { kind: 'retry'; patch: Partial<QueueItem>; stopRun: boolean }
-  | { kind: 'failed'; patch: Partial<QueueItem> }
+  | { kind: 'failed'; patch: Partial<QueueItem>; planLimit: boolean }
   | { kind: 'authError' };
+
+const hasDescription = (item: QueueItem): boolean => item.description.trim() !== '';
+
+/** Failed only because the plan ran out of description uses: sendable again without it. */
+const failedOnAdvancedLimit = (item: QueueItem): boolean =>
+  item.status === 'failed' &&
+  hasDescription(item) &&
+  item.lastError !== null &&
+  isAdvancedTimeTrackingLimitMessage(item.lastError.message);
 
 /**
  * Offline-first queue of time entries (spec §2.2-F). Every entry goes through the queue, so time is
@@ -62,6 +89,13 @@ export class SyncQueue implements Disposable {
   private readonly newId: () => string;
   private readonly serial = new SerialQueue();
   private processing: Promise<ProcessResult> | undefined;
+  /** Workspaces whose plan rejects descriptions ("Advanced Time Tracking" limit reached). */
+  private readonly noDescriptionTeams: Set<string>;
+  /** Workspaces whose plan reached its time tracking limit; skipped until the user retries. */
+  private readonly planLimitedTeams = new Set<string>();
+  private revivedAdvancedLimitFailures = false;
+  /** The item the user asked to retry; sent first in the next run. */
+  private priorityId: string | undefined;
   private readonly changeEmitter = new Emitter<void>();
 
   /** Fires after the queue file changes through this instance. */
@@ -72,6 +106,7 @@ export class SyncQueue implements Disposable {
     this.client = options.client;
     this.clock = options.clock ?? Date.now;
     this.newId = options.newId ?? randomUUID;
+    this.noDescriptionTeams = new Set(options.noDescriptionTeams);
   }
 
   async items(): Promise<QueueItem[]> {
@@ -101,6 +136,11 @@ export class SyncQueue implements Disposable {
 
   /** Makes a failed or backed-off item due right away. */
   async retry(id: string): Promise<void> {
+    const item = (await this.items()).find((current) => current.id === id);
+    if (item) {
+      this.planLimitedTeams.delete(item.teamId);
+    }
+    this.priorityId = id;
     await this.mutate((items) =>
       items.map((item) =>
         item.id === id ? { ...item, status: 'pending', nextAttemptAt: 0, leaseUntil: 0 } : item,
@@ -110,9 +150,15 @@ export class SyncQueue implements Disposable {
 
   /** Makes every item due right away (e.g. after the token was fixed). */
   async retryAll(): Promise<void> {
+    this.planLimitedTeams.clear();
     await this.mutate((items) =>
       items.map((item) => ({ ...item, status: 'pending', nextAttemptAt: 0, leaseUntil: 0 })),
     );
+  }
+
+  /** Forgets which workspaces reject descriptions, so they are tried again (e.g. after a plan upgrade). */
+  resetNoDescriptionTeams(): void {
+    this.noDescriptionTeams.clear();
   }
 
   async discard(id: string): Promise<void> {
@@ -139,10 +185,24 @@ export class SyncQueue implements Disposable {
     let synced = 0;
     let failed = 0;
     let authError = false;
+    let descriptionsDropped = 0;
+    let planLimitReached = false;
+    const knownNoDescriptionTeams = new Set(this.noDescriptionTeams);
 
+    await this.reviveAdvancedLimitFailures();
     const due = (await this.items()).filter((item) => this.isDue(item, this.clock()));
+    const priority = due.findIndex((item) => item.id === this.priorityId);
+    this.priorityId = undefined;
+    if (priority > 0) {
+      due.unshift(...due.splice(priority, 1));
+    }
 
     for (const item of due) {
+      if (this.planLimitedTeams.has(item.teamId)) {
+        // Still waiting for the plan limit to be lifted.
+        planLimitReached = true;
+        continue;
+      }
       if (!(await this.claimLease(item.id))) {
         // Another window is sending it, or it is gone already.
         continue;
@@ -150,6 +210,9 @@ export class SyncQueue implements Disposable {
       const outcome = await this.send(item);
       if (outcome.kind === 'synced') {
         synced++;
+        if (outcome.descriptionDropped) {
+          descriptionsDropped++;
+        }
         await this.mutate((items) => items.filter((current) => current.id !== item.id));
         continue;
       }
@@ -167,9 +230,43 @@ export class SyncQueue implements Disposable {
       if (outcome.kind === 'retry' && outcome.stopRun) {
         break;
       }
+      if (outcome.kind === 'failed' && outcome.planLimit) {
+        // The workspace's next entries would hit the same limit: skip them (other workspaces go on).
+        this.planLimitedTeams.add(item.teamId);
+        planLimitReached = true;
+      }
     }
 
-    return { synced, failed, remaining: (await this.items()).length, authError };
+    return {
+      synced,
+      failed,
+      remaining: (await this.items()).length,
+      authError,
+      descriptionsDropped,
+      planLimitReached,
+      learnedNoDescriptionTeams: [...this.noDescriptionTeams].filter(
+        (team) => !knownNoDescriptionTeams.has(team),
+      ),
+    };
+  }
+
+  /**
+   * Once per instance: makes entries that failed because the plan ran out of description uses
+   * pending again, since they are now sent without the description.
+   */
+  private async reviveAdvancedLimitFailures(): Promise<void> {
+    if (this.revivedAdvancedLimitFailures) {
+      return;
+    }
+    this.revivedAdvancedLimitFailures = true;
+    if (!(await this.items()).some(failedOnAdvancedLimit)) {
+      return;
+    }
+    await this.mutate((items) =>
+      items.map((item) =>
+        failedOnAdvancedLimit(item) ? { ...item, status: 'pending', nextAttemptAt: 0, leaseUntil: 0 } : item,
+      ),
+    );
   }
 
   private isDue(item: QueueItem, now: number): boolean {
@@ -193,20 +290,36 @@ export class SyncQueue implements Disposable {
   }
 
   private async send(item: QueueItem): Promise<Outcome> {
+    const droppable = hasDescription(item);
+    let withDescription = droppable && !this.noDescriptionTeams.has(item.teamId);
     try {
       if (item.outcomeUnknown && (await this.alreadyExists(item))) {
-        return { kind: 'synced' };
+        return { kind: 'synced', descriptionDropped: false };
       }
-      await this.client.createTimeEntry(item.teamId, {
-        tid: item.taskId,
-        start: item.start,
-        duration: item.duration,
-        description: item.description,
-      });
-      return { kind: 'synced' };
+      try {
+        await this.create(item, withDescription);
+      } catch (error) {
+        if (!withDescription || !(error instanceof ClickUpApiError) || !error.isAdvancedTimeTrackingLimit) {
+          throw error;
+        }
+        // The plan has no "Advanced Time Tracking" uses left: the description is what costs one.
+        this.noDescriptionTeams.add(item.teamId);
+        withDescription = false;
+        await this.create(item, false);
+      }
+      return { kind: 'synced', descriptionDropped: droppable && !withDescription };
     } catch (error) {
       return this.outcomeFor(item, error);
     }
+  }
+
+  private async create(item: QueueItem, withDescription: boolean): Promise<void> {
+    await this.client.createTimeEntry(item.teamId, {
+      tid: item.taskId,
+      start: item.start,
+      duration: item.duration,
+      ...(withDescription ? { description: item.description } : {}),
+    });
   }
 
   /** Whether a previous attempt with an unknown outcome actually created the entry. */
@@ -256,6 +369,7 @@ export class SyncQueue implements Disposable {
     return {
       kind: 'failed',
       patch: { status: 'failed', attempts: item.attempts + 1, lastError },
+      planLimit: apiError.isPlanLimit,
     };
   }
 

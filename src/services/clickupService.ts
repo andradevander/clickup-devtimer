@@ -23,6 +23,23 @@ export type ClickUpErrorKind =
   | 'network'
   | 'timeout';
 
+const PLAN_LIMIT_PATTERN = /plan is limited/i;
+const ADVANCED_TIME_TRACKING_PATTERN = /advanced time tracking/i;
+
+/**
+ * Whether an error message is ClickUp refusing the request because a usage limit of the plan was
+ * reached (e.g. "Your plan is limited to 100 usages of Time Tracking"). Free plans have lifetime
+ * limits that never reset.
+ */
+export function isPlanLimitMessage(message: string): boolean {
+  return PLAN_LIMIT_PATTERN.test(message);
+}
+
+/** Whether a plan-limit message is about "Advanced Time Tracking" (descriptions, tags, billable...). */
+export function isAdvancedTimeTrackingLimitMessage(message: string): boolean {
+  return isPlanLimitMessage(message) && ADVANCED_TIME_TRACKING_PATTERN.test(message);
+}
+
 export class ClickUpApiError extends Error {
   override readonly name = 'ClickUpApiError';
 
@@ -46,6 +63,16 @@ export class ClickUpApiError extends Error {
   /** Worth retrying later without user action. */
   get isTransient(): boolean {
     return this.isOutcomeUnknown || this.kind === 'server' || this.kind === 'rateLimited';
+  }
+
+  /** A usage limit of the ClickUp plan was reached (permanent until the plan changes). */
+  get isPlanLimit(): boolean {
+    return this.status === 403 && isPlanLimitMessage(this.message);
+  }
+
+  /** The plan's "Advanced Time Tracking" uses (descriptions, tags, billable...) are exhausted. */
+  get isAdvancedTimeTrackingLimit(): boolean {
+    return this.status === 403 && isAdvancedTimeTrackingLimitMessage(this.message);
   }
 }
 

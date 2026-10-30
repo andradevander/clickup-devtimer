@@ -14,6 +14,16 @@
   "command.openInBrowser": "Open Task in Browser",
   "command.showPendingSync": "Show Pending Sync",
   "command.refreshTasks": "Refresh Task List",
+  "walkthrough.title": "Get Started with ClickUp DevTimer",
+  "walkthrough.description": "Connect ClickUp and log your coding time in under a minute.",
+  "walkthrough.connect.title": "Connect ClickUp",
+  "walkthrough.connect.description": "Paste your ClickUp Personal Token. Get it in ClickUp under **Settings › Apps › API Token**. It is kept in your OS keychain.\n[Set Personal Token](command:clickupDevTimer.setToken)",
+  "walkthrough.workspace.title": "Pick your Workspace",
+  "walkthrough.workspace.description": "Belong to several ClickUp Workspaces? Choose the one you track time in. With a single Workspace this is already done.\n[Select Workspace](command:clickupDevTimer.selectWorkspace)",
+  "walkthrough.track.title": "Start tracking",
+  "walkthrough.track.description": "Pick a task and get coding. Only active time counts, and branches like `feature/CU-86bx123-fix-login` suggest the right task automatically.\n[Select a Task](command:clickupDevTimer.selectTask)",
+  "walkthrough.settings.title": "Fine-tune",
+  "walkthrough.settings.description": "Adjust the idle threshold, time rounding and time entry descriptions to match how your team works.\n[Open Settings](command:workbench.action.openSettings?%22clickupDevTimer%22)",
   "config.teamId": "ClickUp Workspace (team) ID used to list tasks and log time. Filled in during setup.",
   "config.activeStatuses": "Task statuses treated as \"in progress\" (case-insensitive). These tasks are listed first.",
   "config.inactivityThresholdSeconds": "Seconds without activity before the timer pauses automatically. Idle time is not counted.",
@@ -24,7 +34,7 @@
   "config.roundingMode.nearest": "Round to the nearest multiple.",
   "config.roundingMode.up": "Always round up.",
   "config.roundingMode.down": "Always round down.",
-  "config.askDescriptionOnFinish": "Ask for a time entry description when finishing a session.",
+  "config.askDescriptionOnFinish": "Ask for a time entry description when finishing a session. Turned off automatically when your ClickUp plan does not allow time entry descriptions; turn it on again to make ClickUp DevTimer retry them (e.g. after upgrading the plan).",
   "config.defaultDescription": "Default description suggested for time entries.",
   "config.longPauseWarningMinutes": "Warn when the timer has been manually paused for this many minutes. 0 disables the warning.",
   "config.longSessionWarningMinutes": "Warn after this many minutes of continuous tracking on the same task. 0 disables the warning.",
@@ -34,5 +44,6 @@
   "config.recentTasksCount": "Number of recently used tasks shown at the top of the task picker.",
   "config.taskCacheTtlMinutes": "How long (in minutes) the task list is cached.",
   "config.syncRetryIntervalMinutes": "Interval in minutes for automatically retrying pending time entries.",
-  "config.statusBar.maxTaskNameLength": "Maximum number of characters of the task name shown in the status bar."
+  "config.statusBar.maxTaskNameLength": "Maximum number of characters of the task name shown in the status bar.",
+  "config.weeklySummary": "At the start of each week, show a short summary of the time logged the week before."
 }

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { parseTaskReference, type TaskReference } from '../core/taskIdParser';
-import { groupTasks } from '../core/taskSelection';
+import { groupTasks, spansSeveralLists, taskLocation, type BranchEntry } from '../core/taskSelection';
 import type { ClickUpTask } from '../types/clickup';
 import type { TaskRef } from '../types/session';
 
@@ -10,6 +10,10 @@ export interface TaskPickerOptions {
   recentTasks: readonly TaskRef[];
   activeStatuses: readonly string[];
   recentCount: number;
+  /** The task being timed: marked in the list and moved to the end of its section. */
+  currentTaskId?: string | undefined;
+  /** Task references parsed from the current Git branch; those tasks are listed first. */
+  branchReferences?: readonly TaskReference[] | undefined;
   /** Reports a failed load or lookup; the picker stays open. */
   onError: (error: unknown) => void;
 }
@@ -27,23 +31,58 @@ function separator(label: string): PickItem {
   return { label, kind: vscode.QuickPickItemKind.Separator };
 }
 
-function taskItem(task: ClickUpTask): PickItem {
-  const location = task.folder.hidden === true ? task.list.name : `${task.folder.name} › ${task.list.name}`;
+interface ItemStyle {
+  currentTaskId: string | undefined;
+  /** Hidden in the "In progress" section, where the header already says it. */
+  showStatus: boolean;
+  /** Only when the tasks come from several lists; otherwise it is the same line repeated. */
+  showLocation: boolean;
+}
+
+function idLabel(id: string, customId: string | null | undefined): string {
+  return `#${customId ?? id}`;
+}
+
+function taskItem(task: ClickUpTask, style: ItemStyle): PickItem {
+  const current = task.id === style.currentTaskId;
+  const parts = [
+    idLabel(task.id, task.custom_id),
+    ...(style.showStatus ? [task.status.status] : []),
+    ...(current ? [vscode.l10n.t('Current timer')] : []),
+  ];
   return {
-    label: task.name,
-    description: `#${task.custom_id ?? task.id} · ${task.status.status}`,
-    detail: location,
+    label: current ? `$(play-circle) ${task.name}` : task.name,
+    description: parts.join(' · '),
+    ...(style.showLocation ? { detail: taskLocation(task) } : {}),
     task,
   };
 }
 
-function refItem(ref: TaskRef): PickItem {
-  return { label: ref.name, description: `#${ref.customId ?? ref.id}`, ref };
+function refItem(ref: TaskRef, style: ItemStyle): PickItem {
+  const current = ref.id === style.currentTaskId;
+  return {
+    label: current ? `$(play-circle) ${ref.name}` : ref.name,
+    description: [idLabel(ref.id, ref.customId), ...(current ? [vscode.l10n.t('Current timer')] : [])].join(
+      ' · ',
+    ),
+    ref,
+  };
+}
+
+function branchItem(entry: BranchEntry, style: ItemStyle): PickItem {
+  return 'task' in entry ? taskItem(entry.task, style) : refItem(entry.ref, style);
+}
+
+function section(label: string, items: PickItem[]): PickItem[] {
+  return items.length > 0 ? [separator(label), ...items] : [];
 }
 
 /**
- * Task picker (spec §3.4): recent tasks, tasks in progress, other assigned tasks, plus lookup of any
- * task by pasting its ID, custom ID or URL. Resolves with the chosen task, or `undefined` if cancelled.
+ * Task picker (spec §3.4): tasks named by the current branch, recent tasks, tasks in progress, other
+ * assigned tasks, plus lookup of any task by pasting its ID, custom ID or URL. The task being timed is
+ * moved to the end of its section, so Enter usually switches to another task; it can still be first
+ * when it is alone in the first section shown (e.g. no branch section and Recent holds only it).
+ * Resolves with the chosen task, or `undefined` if cancelled.
  */
 export function pickTask(options: TaskPickerOptions): Promise<ClickUpTask | undefined> {
   const picker = vscode.window.createQuickPick<PickItem>();
@@ -78,14 +117,34 @@ export function pickTask(options: TaskPickerOptions): Promise<ClickUpTask | unde
     picker.busy = true;
     try {
       const assigned = await options.loadTasks(force);
-      const groups = groupTasks(assigned, options.recentTasks, options.activeStatuses, options.recentCount);
+      const groups = groupTasks(assigned, options.recentTasks, options.activeStatuses, options.recentCount, {
+        currentTaskId: options.currentTaskId,
+        branchReferences: options.branchReferences,
+      });
+      const style: ItemStyle = {
+        currentTaskId: options.currentTaskId,
+        showStatus: true,
+        showLocation: spansSeveralLists(assigned),
+      };
       listItems = [
-        ...(groups.recent.length > 0 ? [separator(vscode.l10n.t('Recent'))] : []),
-        ...groups.recent.map((entry) => (entry.task ? taskItem(entry.task) : refItem(entry.ref))),
-        ...(groups.active.length > 0 ? [separator(vscode.l10n.t('In progress'))] : []),
-        ...groups.active.map(taskItem),
-        ...(groups.others.length > 0 ? [separator(vscode.l10n.t('Other assigned tasks'))] : []),
-        ...groups.others.map(taskItem),
+        ...section(
+          vscode.l10n.t('From current branch'),
+          groups.branch.map((entry) => branchItem(entry, style)),
+        ),
+        ...section(
+          vscode.l10n.t('Recent'),
+          groups.recent.map((entry) =>
+            entry.task ? taskItem(entry.task, style) : refItem(entry.ref, style),
+          ),
+        ),
+        ...section(
+          vscode.l10n.t('In progress'),
+          groups.active.map((task) => taskItem(task, { ...style, showStatus: false })),
+        ),
+        ...section(
+          vscode.l10n.t('Other assigned tasks'),
+          groups.others.map((task) => taskItem(task, style)),
+        ),
       ];
       if (listItems.length === 0) {
         picker.placeholder = vscode.l10n.t(

@@ -2,10 +2,14 @@
   "name": "clickup-devtimer",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "andradevander",
   "license": "MIT",
   "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#1A1720",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/andradevander/clickup-devtimer.git"
@@ -23,10 +27,20 @@
   ],
   "keywords": [
     "clickup",
+    "click up",
     "time tracking",
+    "time tracker",
     "timer",
+    "timesheet",
+    "worklog",
     "productivity",
-    "timesheet"
+    "task",
+    "tasks",
+    "idle detection",
+    "status bar",
+    "git branch",
+    "offline",
+    "project management"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -101,6 +115,61 @@
         "command": "clickupDevTimer.refreshTasks",
         "title": "%command.refreshTasks%",
         "category": "ClickUp DevTimer"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "clickupDevTimer.gettingStarted",
+        "title": "%walkthrough.title%",
+        "description": "%walkthrough.description%",
+        "steps": [
+          {
+            "id": "clickupDevTimer.gettingStarted.connect",
+            "title": "%walkthrough.connect.title%",
+            "description": "%walkthrough.connect.description%",
+            "media": {
+              "markdown": "media/walkthrough/connect.md"
+            },
+            "completionEvents": [
+              "onCommand:clickupDevTimer.setToken"
+            ]
+          },
+          {
+            "id": "clickupDevTimer.gettingStarted.workspace",
+            "title": "%walkthrough.workspace.title%",
+            "description": "%walkthrough.workspace.description%",
+            "media": {
+              "markdown": "media/walkthrough/workspace.md"
+            },
+            "completionEvents": [
+              "onCommand:clickupDevTimer.selectWorkspace",
+              "onSettingChanged:clickupDevTimer.teamId"
+            ]
+          },
+          {
+            "id": "clickupDevTimer.gettingStarted.track",
+            "title": "%walkthrough.track.title%",
+            "description": "%walkthrough.track.description%",
+            "media": {
+              "markdown": "media/walkthrough/track.md"
+            },
+            "completionEvents": [
+              "onCommand:clickupDevTimer.selectTask"
+            ]
+          },
+          {
+            "id": "clickupDevTimer.gettingStarted.settings",
+            "title": "%walkthrough.settings.title%",
+            "description": "%walkthrough.settings.description%",
+            "media": {
+              "markdown": "media/walkthrough/settings.md"
+            },
+            "completionEvents": [
+              "onCommand:workbench.action.openSettings",
+              "onSettingChanged:clickupDevTimer"
+            ]
+          }
+        ]
       }
     ],
     "configuration": {
@@ -228,6 +297,11 @@
           "default": 30,
           "minimum": 0,
           "description": "%config.statusBar.maxTaskNameLength%"
+        },
+        "clickupDevTimer.weeklySummary": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.weeklySummary%"
         }
       }
     }
@@ -250,7 +324,8 @@
     "check": "npm run lint && npm run format:check && npm run typecheck && npm run test:unit",
     "package": "vsce package",
     "publish:vsce": "vsce publish",
-    "publish:ovsx": "ovsx publish"
+    "publish:ovsx": "ovsx publish",
+    "devto": "node scripts/devto.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { readConfig, updateGlobalSetting, type TimerConfig } from './config';
+import { globalBooleanSetting, readConfig, updateGlobalSetting, type TimerConfig } from './config';
 import { Commands } from './constants';
 import {
   MANUAL_PAUSE_SNOOZE_MS,
@@ -10,10 +10,20 @@ import {
   updateActivityStreak,
   type ActivityStreak,
 } from './core/idlePolicy';
+import { summarizeBranch } from './core/descriptionSuggestions';
 import type { PreparedEntries } from './core/rounding';
-import { extractTaskIdsFromBranch } from './core/taskIdParser';
+import { extractTaskIdsFromBranch, type TaskReference } from './core/taskIdParser';
+import {
+  afterReviewAnswer,
+  readReviewState,
+  reviewUrl,
+  shouldAskForReview,
+  withSyncedEntries,
+  type ReviewAnswer,
+} from './core/reviewPrompt';
 import { isActiveStatus, pickTargetStatus } from './core/taskSelection';
 import { formatHoursMinutes, sessionElapsed, totalDuration } from './core/timeMath';
+import { localWeekKey, type WeeklySummary } from './core/weeklyStats';
 import { ActivityWatcher } from './services/activityWatcher';
 import {
   ClickUpApiError,
@@ -26,6 +36,7 @@ import { SessionActiveError, StateManager } from './services/stateManager';
 import { SyncQueue } from './services/syncQueue';
 import { TaskRepository } from './services/taskRepository';
 import { TokenStore } from './services/tokenStore';
+import { WeeklyStatsStore } from './services/weeklyStatsStore';
 import { WindowCoordinator } from './services/windowCoordinator';
 import type { ClickUpTask, ClickUpTeam } from './types/clickup';
 import type { Session, TaskRef } from './types/session';
@@ -38,6 +49,20 @@ const t = vscode.l10n.t;
 /** The background loop runs every second; slower work runs every N seconds. */
 const REFRESH_EVERY_SECONDS = 2;
 const BACKGROUND_EVERY_SECONDS = 10;
+/** Lists the usage limits (time tracking, Advanced Time Tracking) of each ClickUp plan. */
+const CLICKUP_PRICING_URL = 'https://clickup.com/pricing';
+/** `globalState` key: workspaces whose ClickUp plan rejects time entry descriptions. */
+const NO_DESCRIPTION_TEAMS_KEY = 'noDescriptionTeams';
+/** `globalState` key: entries synced so far and when to ask for a store review. */
+const REVIEW_STATE_KEY = 'reviewPrompt';
+/** `globalState` key: the user clicked "Star on GitHub" once; the button is not offered again. */
+const GITHUB_STARRED_KEY = 'githubStarred';
+const GITHUB_URL = 'https://github.com/andradevander/clickup-devtimer';
+/**
+ * `globalState` key: the week whose summary was shown. Guards against `stats.json` races between
+ * windows (there is no cross-window lock), which could otherwise show a summary twice.
+ */
+const WEEKLY_SUMMARY_SHOWN_KEY = 'weeklySummaryShownWeek';
 
 interface SessionWarnings {
   sessionId: string;
@@ -74,6 +99,16 @@ export class Controller implements vscode.Disposable {
   private manualPauseSnoozedUntil: number | null = null;
   private readonly openPrompts = new Set<string>();
   private readonly promptedBranches = new Set<string>();
+  /** The plan-limit error was shown; shown again only after an explicit retry. */
+  private planLimitNotified = false;
+  private readonly globalState: vscode.Memento;
+  private readonly weeklyStats: WeeklyStatsStore;
+  /** The week whose start was already checked for a weekly summary. */
+  private summaryCheckedWeek: string | undefined;
+  /** Commands in progress (they may have a quick pick or input box open). */
+  private activeCommands = 0;
+  /** Last seen user-level value of `askDescriptionOnFinish`, to spot the user turning it on. */
+  private askDescriptionGlobally = globalBooleanSetting('askDescriptionOnFinish', true);
 
   constructor(
     context: vscode.ExtensionContext,
@@ -89,8 +124,29 @@ export class Controller implements vscode.Disposable {
         this.log.warn('Heartbeat failed', error);
       },
     });
-    this.queue = new SyncQueue({ directory: storageDirectory, client: this.client });
-    this.stateManager = new StateManager({ directory: storageDirectory, queue: this.queue });
+    this.globalState = context.globalState;
+    this.queue = new SyncQueue({
+      directory: storageDirectory,
+      client: this.client,
+      noDescriptionTeams: this.noDescriptionTeams(),
+    });
+    this.weeklyStats = new WeeklyStatsStore({ directory: storageDirectory });
+    const queue = this.queue;
+    const weeklyStats = this.weeklyStats;
+    this.stateManager = new StateManager({
+      directory: storageDirectory,
+      queue: {
+        // Every logged entry also goes into the weekly tally.
+        enqueue: async (entries) => {
+          const added = await queue.enqueue(entries);
+          await weeklyStats.record(entries).catch((error: unknown) => {
+            this.log.warn('Weekly stats update failed', error);
+          });
+          return added;
+        },
+        hasSession: (sessionId) => queue.hasSession(sessionId),
+      },
+    });
     this.disposables.push(this.statusBar, this.git, this.queue, this.stateManager, this.coordinator);
   }
 
@@ -115,6 +171,9 @@ export class Controller implements vscode.Disposable {
         if (event.affectsConfiguration('clickupDevTimer')) {
           this.repository.invalidate();
           this.render();
+        }
+        if (event.affectsConfiguration('clickupDevTimer.askDescriptionOnFinish')) {
+          this.onAskDescriptionChanged();
         }
       }),
       this.git.onDidChangeBranch(({ branch }) => {
@@ -195,10 +254,13 @@ export class Controller implements vscode.Disposable {
   }
 
   private async runCommand(command: string, handler: () => Promise<unknown>): Promise<void> {
+    this.activeCommands++;
     try {
       await handler();
     } catch (error) {
       this.handleError(error, command);
+    } finally {
+      this.activeCommands--;
     }
   }
 
@@ -336,6 +398,8 @@ export class Controller implements vscode.Disposable {
       recentTasks: this.stateManager.state.recentTasks,
       activeStatuses: config.activeStatuses,
       recentCount: config.recentTasksCount,
+      currentTaskId: this.stateManager.state.session?.task.id,
+      branchReferences: this.branchReferences(config),
       onError: (error) => {
         this.handleError(error, 'selectTask');
       },
@@ -375,7 +439,7 @@ export class Controller implements vscode.Disposable {
 
   private async switchTo(ref: TaskRef, current: Session | null): Promise<void> {
     const config = readConfig();
-    const description = current ? await this.describe(config) : '';
+    const description = current ? await this.describe(config, current) : '';
     const { finished } = await this.stateManager.switchTask(ref, description, config.entryPolicy);
     if (current !== null) {
       this.reportFinished(finished, current.task);
@@ -399,7 +463,7 @@ export class Controller implements vscode.Disposable {
       return;
     }
     const config = readConfig();
-    const description = await this.describe(config);
+    const description = await this.describe(config, session);
     const prepared = await this.stateManager.finish(description, config.entryPolicy);
     this.reportFinished(prepared, session.task);
     void this.guard('queue', () => this.processQueue());
@@ -537,11 +601,25 @@ export class Controller implements vscode.Disposable {
   // Finishing and status suggestions
   // ---------------------------------------------------------------------------------------------
 
-  private async describe(config: TimerConfig): Promise<string> {
+  private async describe(config: TimerConfig, session: Session): Promise<string> {
     const branch = this.git.currentBranch();
     return config.askDescriptionOnFinish
-      ? askDescription(branch, config.defaultDescription)
+      ? askDescription({
+          taskName: session.task.name,
+          durationMs: sessionElapsed(session, Date.now()),
+          branch,
+          branchSummary: branch === undefined ? undefined : summarizeBranch(branch, config.branchPatterns),
+          defaultDescription: config.defaultDescription,
+        })
       : (branch ?? config.defaultDescription);
+  }
+
+  /** Task references in the current branch name, for the task picker (empty when detection is off). */
+  private branchReferences(config: TimerConfig): TaskReference[] {
+    const branch = this.git.currentBranch();
+    return config.branchDetectionEnabled && branch !== undefined
+      ? extractTaskIdsFromBranch(branch, config.branchPatterns).references
+      : [];
   }
 
   private reportFinished(prepared: PreparedEntries | undefined, task: TaskRef): void {
@@ -590,7 +668,7 @@ export class Controller implements vscode.Disposable {
     } else if (choice === neverAsk) {
       await updateGlobalSetting('suggestStatusChange', false);
     }
-    if (status !== undefined && status !== task.status.status) {
+    if (status !== undefined && status.toLowerCase() !== task.status.status.toLowerCase()) {
       await this.client.updateTaskStatus(task.id, status);
       this.repository.invalidate();
       vscode.window.setStatusBarMessage(`$(check) ${t('Status changed to "{0}".', status)}`, 4000);
@@ -610,7 +688,7 @@ export class Controller implements vscode.Disposable {
     const status = await pickStatus(
       list.statuses,
       task.status.status,
-      t('Update the status of "{0}"? (Esc keeps "{1}")', task.name, task.status.status),
+      t('Update the status of "{0}"? (Enter or Esc keeps "{1}")', task.name, task.status.status),
     );
     if (status !== undefined && status.toLowerCase() !== task.status.status.toLowerCase()) {
       await this.client.updateTaskStatus(task.id, status);
@@ -661,6 +739,14 @@ export class Controller implements vscode.Disposable {
       await this.processQueue();
     }
     this.checkWarnings(config, now);
+    const week = localWeekKey(now);
+    if (this.summaryCheckedWeek !== week) {
+      // Marked only once done, so a failed check is retried on a later heartbeat.
+      void this.guard('weeklySummary', async () => {
+        await this.showWeeklySummary();
+        this.summaryCheckedWeek = week;
+      });
+    }
   }
 
   private checkWarnings(config: TimerConfig, now: number): void {
@@ -800,7 +886,18 @@ export class Controller implements vscode.Disposable {
         5000,
       );
     }
-    if (result.failed > 0 || (reportFailures && result.remaining > 0)) {
+    const learnedNoDescription = await this.rememberNoDescriptionTeams(result.learnedNoDescriptionTeams);
+    if (learnedNoDescription) {
+      await this.turnOffDescriptions();
+      void this.prompt('descriptionsDropped', () => this.reportDescriptionsDropped());
+    }
+    if (result.planLimitReached) {
+      // Once per session, unless the user explicitly retried.
+      if (!this.planLimitNotified || reportFailures) {
+        this.planLimitNotified = true;
+        void this.prompt('planLimit', () => this.reportPlanLimit());
+      }
+    } else if (result.failed > 0 || (reportFailures && result.remaining > 0)) {
       void this.prompt('syncFailed', async () => {
         const show = t('Show Pending Sync');
         const choice = await vscode.window.showWarningMessage(
@@ -812,7 +909,165 @@ export class Controller implements vscode.Disposable {
         }
       });
     }
+    const hadNotice = learnedNoDescription || result.planLimitReached || result.failed > 0 || reportFailures;
+    await this.countSynced(result.synced, hadNotice);
     await this.refreshPending();
+  }
+
+  /** Counts synced entries and, at the right moment, asks once for a store review. */
+  private async countSynced(count: number, hadNotice: boolean): Promise<void> {
+    if (count <= 0) {
+      return;
+    }
+    const state = withSyncedEntries(readReviewState(this.globalState.get(REVIEW_STATE_KEY)), count);
+    await this.globalState.update(REVIEW_STATE_KEY, state);
+    // Not on top of an error or notice, nor while the user is in the middle of something.
+    const busy =
+      this.openPrompts.size > 0 ||
+      this.activeCommands > 0 ||
+      this.running.has('statusOnStart') ||
+      this.running.has('statusOnFinish');
+    if (hadNotice || busy || !shouldAskForReview(state)) {
+      return;
+    }
+    void this.prompt('review', () => this.askForReview());
+  }
+
+  private async askForReview(): Promise<void> {
+    const rate = t('Rate it');
+    const later = t('Later');
+    const never = t("Don't ask again");
+    const choice = await vscode.window.showInformationMessage(
+      t('Enjoying ClickUp DevTimer? A quick review helps other developers find it.'),
+      rate,
+      later,
+      never,
+    );
+    const answer: ReviewAnswer = choice === rate ? 'rate' : choice === never ? 'never' : 'later';
+    const state = readReviewState(this.globalState.get(REVIEW_STATE_KEY));
+    await this.globalState.update(REVIEW_STATE_KEY, afterReviewAnswer(state, answer));
+    if (answer === 'rate') {
+      await vscode.env.openExternal(vscode.Uri.parse(reviewUrl(vscode.env.uriScheme)));
+    }
+  }
+
+  /** At the start of a week, the owner window sums up last week once (shared by every window). */
+  private async showWeeklySummary(): Promise<void> {
+    if (!readConfig().weeklySummary) {
+      return;
+    }
+    const summary = await this.weeklyStats.takeSummary();
+    if (summary !== undefined && this.globalState.get(WEEKLY_SUMMARY_SHOWN_KEY) !== summary.weekKey) {
+      await this.globalState.update(WEEKLY_SUMMARY_SHOWN_KEY, summary.weekKey);
+      void this.prompt('weeklySummary', () => this.reportWeeklySummary(summary));
+    }
+  }
+
+  private async reportWeeklySummary(summary: WeeklySummary): Promise<void> {
+    const logged = formatHoursMinutes(summary.totalMs);
+    const message =
+      summary.taskCount === 1
+        ? t('Last week you logged {0} on 1 task with ClickUp DevTimer.', logged)
+        : t('Last week you logged {0} on {1} tasks with ClickUp DevTimer.', logged, summary.taskCount);
+    const star = t('⭐ Star on GitHub');
+    const dontShow = t("Don't show again");
+    const starred = this.globalState.get<boolean>(GITHUB_STARRED_KEY) === true;
+    const choice = await vscode.window.showInformationMessage(
+      message,
+      ...(starred ? [dontShow] : [star, dontShow]),
+    );
+    if (choice === star) {
+      await this.globalState.update(GITHUB_STARRED_KEY, true);
+      await vscode.env.openExternal(vscode.Uri.parse(GITHUB_URL));
+    } else if (choice === dontShow) {
+      await updateGlobalSetting('weeklySummary', false);
+    }
+  }
+
+  /** Stops asking for descriptions the plan rejects; a failure is logged, the notice still shows. */
+  private async turnOffDescriptions(): Promise<void> {
+    try {
+      await updateGlobalSetting('askDescriptionOnFinish', false);
+    } catch (error) {
+      this.log.warn('Could not turn off askDescriptionOnFinish', error);
+    }
+  }
+
+  /**
+   * Only the user turning the user-level value on (e.g. after upgrading the plan) retries
+   * descriptions. Our own write (to false) and workspace-level values that force it on are ignored,
+   * otherwise a workspace override would make every sync relearn the workspace and notify again.
+   */
+  private onAskDescriptionChanged(): void {
+    const previous = this.askDescriptionGlobally;
+    this.askDescriptionGlobally = globalBooleanSetting('askDescriptionOnFinish', true);
+    if (!previous && this.askDescriptionGlobally) {
+      void this.guard('descriptionsReset', () => this.resetNoDescriptionTeams());
+    }
+  }
+
+  /** The user turned descriptions back on: try them again. */
+  private async resetNoDescriptionTeams(): Promise<void> {
+    this.queue.resetNoDescriptionTeams();
+    await this.globalState.update(NO_DESCRIPTION_TEAMS_KEY, undefined);
+  }
+
+  private noDescriptionTeams(): string[] {
+    const stored = this.globalState.get<unknown>(NO_DESCRIPTION_TEAMS_KEY);
+    return Array.isArray(stored) ? stored.filter((team): team is string => typeof team === 'string') : [];
+  }
+
+  /**
+   * Persists workspaces found to reject descriptions, so later sessions send without them straight
+   * away. Returns whether any of them was not known before (another window may have stored it).
+   */
+  private async rememberNoDescriptionTeams(teams: readonly string[]): Promise<boolean> {
+    const known = this.noDescriptionTeams();
+    const added = teams.filter((team) => !known.includes(team));
+    if (added.length === 0) {
+      return false;
+    }
+    await this.globalState.update(NO_DESCRIPTION_TEAMS_KEY, [...known, ...added]);
+    return true;
+  }
+
+  /** The plan ran out of "Advanced Time Tracking" uses, so entries are sent without descriptions. */
+  private async reportDescriptionsDropped(): Promise<void> {
+    const openSettings = t('Open Settings');
+    const learnMore = t('Learn more');
+    const choice = await vscode.window.showInformationMessage(
+      t(
+        'Your ClickUp plan does not allow time entry descriptions, so ClickUp DevTimer stopped asking for them and sends time entries without one. You can turn them back on in Settings ("Ask Description On Finish").',
+      ),
+      openSettings,
+      learnMore,
+    );
+    if (choice === openSettings) {
+      await vscode.commands.executeCommand(
+        'workbench.action.openSettings',
+        'clickupDevTimer.askDescriptionOnFinish',
+      );
+    } else if (choice === learnMore) {
+      await vscode.env.openExternal(vscode.Uri.parse(CLICKUP_PRICING_URL));
+    }
+  }
+
+  /** The plan's time tracking limit was reached: ClickUp refuses new time entries. */
+  private async reportPlanLimit(): Promise<void> {
+    const show = t('Show Pending Sync');
+    const learnMore = t('Learn more');
+    const choice = await vscode.window.showErrorMessage(
+      t(
+        'Your ClickUp plan has reached its time tracking limit, so ClickUp is refusing new time entries. They stay in the pending sync list: upgrade the ClickUp plan and retry, or log the time manually in ClickUp and discard them.',
+      ),
+      show,
+      learnMore,
+    );
+    if (choice === show) {
+      await this.showPendingSync();
+    } else if (choice === learnMore) {
+      await vscode.env.openExternal(vscode.Uri.parse(CLICKUP_PRICING_URL));
+    }
   }
 
   /** A successful API call means the token works and the network is up: flush the queue. */
