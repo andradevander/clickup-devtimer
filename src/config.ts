@@ -20,6 +20,7 @@ export interface TimerConfig {
   taskCacheTtlMs: number;
   syncRetryIntervalMs: number;
   maxTaskNameLength: number;
+  weeklySummary: boolean;
 }
 
 /** Reads the settings, clamping values to the minimums declared in package.json. */
@@ -58,7 +59,14 @@ export function readConfig(): TimerConfig {
     taskCacheTtlMs: minutesToMs(num('taskCacheTtlMinutes', 5, 0)),
     syncRetryIntervalMs: minutesToMs(num('syncRetryIntervalMinutes', 5, 1)),
     maxTaskNameLength: num('statusBar.maxTaskNameLength', 30, 0),
+    weeklySummary: config.get<boolean>('weeklySummary', true),
   };
+}
+
+/** The user-level (global) value of a boolean setting, falling back to its default. */
+export function globalBooleanSetting(key: string, fallback: boolean): boolean {
+  const inspected = vscode.workspace.getConfiguration(CONFIG_SECTION).inspect<boolean>(key);
+  return inspected?.globalValue ?? inspected?.defaultValue ?? fallback;
 }
 
 export async function updateGlobalSetting(key: string, value: unknown): Promise<void> {

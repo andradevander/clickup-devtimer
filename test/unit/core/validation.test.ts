@@ -7,6 +7,7 @@ import {
   validateLock,
   validatePersistedState,
   validateQueue,
+  validateStats,
 } from '../../../src/core/validation';
 import type { QueueItem } from '../../../src/types/session';
 import { MINUTE, SESSION_ID, T0, task } from './fixtures';
@@ -147,5 +148,27 @@ describe('validateQueue', () => {
     { ...queueItem, duration: undefined },
   ])('rejects an item %#', (item) => {
     expect(validateQueue({ schemaVersion: 1, items: [item] })).toBeUndefined();
+  });
+});
+
+describe('validateStats', () => {
+  it('accepts valid stats', () => {
+    const stats = {
+      schemaVersion: 1,
+      weeks: { '2026-01-12': { totalMs: 60_000, taskIds: ['a'], summaryShown: false } },
+    };
+    expect(validateStats(stats)).toBe(stats);
+    expect(validateStats({ schemaVersion: 1, weeks: {} })).toEqual({ schemaVersion: 1, weeks: {} });
+  });
+
+  it.each([
+    null,
+    { schemaVersion: 2, weeks: {} },
+    { schemaVersion: 1, weeks: [] },
+    { schemaVersion: 1, weeks: { w: { totalMs: 'x', taskIds: [], summaryShown: false } } },
+    { schemaVersion: 1, weeks: { w: { totalMs: 1, taskIds: [1], summaryShown: false } } },
+    { schemaVersion: 1, weeks: { w: { totalMs: 1, taskIds: [], summaryShown: 'no' } } },
+  ])('rejects %j', (value) => {
+    expect(validateStats(value)).toBeUndefined();
   });
 });

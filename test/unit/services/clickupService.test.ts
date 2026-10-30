@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ClickUpApiError,
   ClickUpService,
+  isAdvancedTimeTrackingLimitMessage,
+  isPlanLimitMessage,
   looksLikePersonalToken,
   toTaskRef,
 } from '../../../src/services/clickupService';
@@ -320,6 +322,53 @@ describe('ClickUpService errors', () => {
     const error = await errorOf(service.getUser());
     expect(error.kind).toBe('network');
     expect(error.message).toContain('boom');
+  });
+
+  it('recognises the Advanced Time Tracking plan limit', async () => {
+    const { service } = setup([
+      () =>
+        json(
+          { err: 'Your plan is limited to 40 usages of Advanced Time Tracking, 40 usage.', ECODE: 'X' },
+          403,
+        ),
+    ]);
+    const error = await errorOf(service.createTimeEntry('9000', { tid: 't', start: 1, duration: 2 }));
+    expect(error.isPlanLimit).toBe(true);
+    expect(error.isAdvancedTimeTrackingLimit).toBe(true);
+    expect(error.isTransient).toBe(false);
+  });
+
+  it('recognises the basic Time Tracking plan limit', async () => {
+    const { service } = setup([
+      () => json({ err: 'Your plan is limited to 100 usages of Time Tracking, 100 usage.' }, 403),
+    ]);
+    const error = await errorOf(service.getUser());
+    expect(error.isPlanLimit).toBe(true);
+    expect(error.isAdvancedTimeTrackingLimit).toBe(false);
+  });
+
+  it('does not treat other errors as plan limits', async () => {
+    const { service } = setup([
+      () => json({ err: 'Team not authorized' }, 403),
+      () => json({ err: 'Your plan is limited to 40 usages of Advanced Time Tracking' }, 400),
+    ]);
+    const forbidden = await errorOf(service.getUser());
+    expect(forbidden.isPlanLimit).toBe(false);
+    expect(forbidden.isAdvancedTimeTrackingLimit).toBe(false);
+    const client = await errorOf(service.getUser());
+    expect(client.isPlanLimit).toBe(false);
+    expect(client.isAdvancedTimeTrackingLimit).toBe(false);
+  });
+
+  it('recognises plan limits from stored messages', () => {
+    const message =
+      'POST /team/1/time_entries failed with 403: Your plan is limited to 40 usages of Advanced Time Tracking';
+    expect(isPlanLimitMessage(message)).toBe(true);
+    expect(isAdvancedTimeTrackingLimitMessage(message)).toBe(true);
+    expect(isPlanLimitMessage('failed with 500: oops')).toBe(false);
+    expect(isAdvancedTimeTrackingLimitMessage('Your plan is limited to 100 usages of Time Tracking')).toBe(
+      false,
+    );
   });
 
   it('marks client errors as permanent', async () => {

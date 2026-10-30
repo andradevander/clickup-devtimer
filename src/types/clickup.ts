@@ -61,5 +61,6 @@ export interface NewTimeEntry {
   start: number;
   /** Milliseconds. */
   duration: number;
-  description: string;
+  /** Omitted when the plan does not allow descriptions ("Advanced Time Tracking"). */
+  description?: string;
 }
