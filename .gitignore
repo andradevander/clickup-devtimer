@@ -41,3 +41,6 @@ desktop.ini
 !.vscode/extensions.json
 .idea/
 *.swp
+
+# Claude Code (personal settings; project .claude/settings.json is shared)
+.claude/settings.local.json
